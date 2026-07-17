@@ -1,8 +1,3 @@
-import {describe,it,expect,beforeEach} from 'vitest'
-import {askPrice,customerDeck,freshSave,products,saveGame,loadSave} from './game'
-describe('Magic and Steel economy',()=>{
- beforeEach(()=>localStorage.clear())
- it('starts with a viable first day',()=>{const s=freshSave();expect(s.coins).toBeGreaterThan(100);expect(s.materials.iron).toBeGreaterThanOrEqual(products.shortsword.cost)})
- it('prices preferred goods above mismatches',()=>{const c={...customerDeck[0],state:'waiting' as const};expect(askPrice(c,'shortsword')).toBeGreaterThan(askPrice(c,'leatherShirt'))})
- it('round-trips a local save',()=>{const s=freshSave();s.coins=77;saveGame(s);expect(loadSave().coins).toBe(77)})
-})
+import{describe,it,expect,beforeEach}from'vitest'
+import{freshSave,loadSave,saveGame,makeCustomer,priceFor,recipesFor}from'./game'
+describe('continuous shop simulation',()=>{beforeEach(()=>localStorage.clear());it('creates a viable persistent shop',()=>{const s=freshSave();expect(s.hired).toHaveLength(2);saveGame(s);expect(loadSave().version).toBe(2)});it('rewards matching customer requests',()=>{const c=makeCustomer(0,1);expect(priceFor(c,'shortsword')).toBeGreaterThan(priceFor(c,'leatherShirt'))});it('unlocks recipes through worker levels',()=>{expect(recipesFor('blacksmith',1)).toEqual(['shortsword']);expect(recipesFor('blacksmith',2)).toContain('handaxe')})})
