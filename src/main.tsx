@@ -11,11 +11,11 @@ const workerIds = Object.keys(workers) as WorkerId[]
 const productIds = Object.keys(products) as ProductId[]
 type PlacementId = WorkerId | DisplayId | 'shopkeeper'
 const displayIds: DisplayId[] = ['shelf', 'weaponRack', 'armourStand', 'potionDisplay']
-const displayInfo: Record<DisplayId, { name: string; icon: string; accepts: (product: ProductId) => boolean }> = {
-  shelf: { name: 'Goods Shelf', icon: '▥', accepts: () => true },
-  weaponRack: { name: 'Weapon Rack', icon: '⚔', accepts: product => ['blade', 'bow'].includes(products[product].category) },
-  armourStand: { name: 'Armour Stand', icon: '♜', accepts: product => products[product].category === 'armour' },
-  potionDisplay: { name: 'Potion Display', icon: '⚗', accepts: product => products[product].category === 'potion' },
+const displayInfo: Record<DisplayId, { name: string; icon: string; price: number; accepts: (product: ProductId) => boolean }> = {
+  shelf: { name: 'Goods Shelf', icon: '▥', price: 18, accepts: () => true },
+  weaponRack: { name: 'Weapon Rack', icon: '⚔', price: 24, accepts: product => ['blade', 'bow'].includes(products[product].category) },
+  armourStand: { name: 'Armour Stand', icon: '♜', price: 28, accepts: product => products[product].category === 'armour' },
+  potionDisplay: { name: 'Potion Display', icon: '⚗', price: 22, accepts: product => products[product].category === 'potion' },
 }
 const benchNames: Record<PlacementId, string> = {
   blacksmith: 'Forge', leatherworker: 'Stitching Table', alchemist: 'Brewing Table', carpenter: 'Woodworking Bench', shopkeeper: 'Sales Counter',
@@ -173,6 +173,15 @@ function App() {
     s.furnitureFacing[id] = s.furnitureFacing[id] === 0 ? 1 : 0
     setNote(`${benchNames[id]} rotated to face the other aisle.`); return s
   })
+  const buyOrPlaceDisplay = (id: DisplayId, slot: number) => update(s => {
+    if (s.phase !== 'prep' || s.displays[id].slot !== null) return s
+    if (!s.ownedDisplays[id]) {
+      const price = displayInfo[id].price
+      if (s.coins < price) { setNote(`You need ${price}g to buy the ${displayInfo[id].name}.`); return s }
+      s.coins -= price; s.expenses += price; s.ownedDisplays[id] = true
+    }
+    s.displays[id].slot = slot; setFurnitureTile(null); setNote(`${displayInfo[id].name} placed. Click it to stock, rotate, or move it.`); return s
+  })
   const queue = (p: ProductId) => update(s => {
     const r = products[p], ws = s.workerState[r.worker]
     if (s.placedBenches[r.worker] === null) { setNote(`Place the ${benchNames[r.worker]} first.`); return s }
@@ -214,11 +223,6 @@ function App() {
   const totalStock = Object.values(g.inventory).reduce((a, b) => a + b, 0)
   const selectedIsDisplayed = selected ? displayIds.some(id => g.displays[id].product === selected) : false
   const offer = active && selected && active.kind === 'buyer' ? Math.round(priceFor(active, selected, g.reputation) * (selectedIsDisplayed ? 1.08 : 1)) : 0
-  const placeableChoices: PlacementId[] = [
-    ...(g.shopkeeperSlot === null ? ['shopkeeper' as const] : []),
-    ...workerIds.filter(id => g.hired.includes(id) && g.placedBenches[id] === null),
-    ...displayIds.filter(id => g.displays[id].slot === null),
-  ]
 
   return <div className="game-shell">
     <header><div className="brand"><span>⚔</span><div><h1>MAGIC <i>&</i> STEEL</h1><p>The Wandering Anvil</p></div></div><div className="clock"><b>DAY {g.day} · {clock(g.minutes)}</b><small>{g.phase === 'prep' ? 'MORNING PREPARATION' : g.phase === 'open' ? (g.paused ? 'SHOP PAUSED' : `SHOP OPEN · ${g.speed}×`) : 'ACCOUNTS'}</small></div><div className="header-actions"><div className="wealth"><b>● {g.coins}g</b><small>Reputation {g.reputation >= 0 ? '+' : ''}{g.reputation}</small></div><button className="settings-toggle" onClick={() => setShowSettings(true)} aria-label="Open settings">⚙</button></div></header>
@@ -233,8 +237,8 @@ function App() {
           <div className="job-status">{job ? <><span>{job.icon}</span><small>{job.name}</small><div className="progress"><i style={{ width: `${ws.active!.progress / job.ticks * 100}%` }}/></div></> : <small>{ws.queue.length ? `${ws.queue.length} queued` : 'Ready'}</small>}</div>
         </div>
       })}</div>
-      {displayIds.map(id => { const display = g.displays[id]; if(display.slot === null)return null; const [x,y]=slotPositions[display.slot]; return <button key={id} className={`map-display facing-${g.furnitureFacing[id]} ${id} ${display.product?'stocked':''}`} style={{left:`${x}%`,top:`${y}%`}} onClick={()=>setActiveDisplay(id)} aria-label={`${displayInfo[id].name}${display.product?`, displaying ${products[display.product].name}`:', empty'}`}><img src={`${import.meta.env.BASE_URL}assets/displays/${id}.png`} alt=""/><span className="merchandise-slot">{display.product?products[display.product].icon:''}</span></button> })}
-      {furnitureTile !== null && (()=>{const [x,y]=slotPositions[furnitureTile];return <div className="floor-picker" style={{left:`${x}%`,top:`${y}%`}} role="dialog" aria-label="Choose furniture"><button className="picker-close" onClick={()=>setFurnitureTile(null)}>×</button><b>PLACE FURNITURE</b>{placeableChoices.map(id=><button key={id} onClick={()=>placeBench(furnitureTile,id)}><span>{displayIds.includes(id as DisplayId)?displayInfo[id as DisplayId].icon:id==='shopkeeper'?'▤':workers[id as WorkerId].icon}</span>{benchNames[id]}</button>)}{!placeableChoices.length&&<small>Everything is already placed.</small>}</div>})()}
+      {displayIds.map(id => { const display = g.displays[id]; if(display.slot === null)return null; const [x,y]=slotPositions[display.slot],artName=id==='shelf'?'shelf-v2':id==='weaponRack'?'weaponRack-v2':id; return <button key={id} className={`map-display facing-${g.furnitureFacing[id]} ${id} ${display.product?'stocked':''}`} style={{left:`${x}%`,top:`${y}%`}} onClick={()=>setActiveDisplay(id)} aria-label={`${displayInfo[id].name}${display.product?`, displaying ${products[display.product].name}`:', empty'}`}><img src={`${import.meta.env.BASE_URL}assets/displays/${artName}.png`} alt=""/><span className="merchandise-slot">{display.product?products[display.product].icon:''}</span></button> })}
+      {furnitureTile !== null && (()=>{const [x,y]=slotPositions[furnitureTile];return <div className="floor-picker furniture-catalogue" style={{left:`${x}%`,top:`${y}%`}} role="dialog" aria-label="Furniture shop"><button className="picker-close" onClick={()=>setFurnitureTile(null)}>×</button><b>FURNITURE SHOP</b><small>Choose something for this floor tile.</small>{displayIds.map(id=>{const placed=g.displays[id].slot!==null,owned=g.ownedDisplays[id],affordable=g.coins>=displayInfo[id].price;return <button key={id} disabled={placed||(!owned&&!affordable)} onClick={()=>buyOrPlaceDisplay(id,furnitureTile)}><span>{displayInfo[id].icon}</span><i><strong>{displayInfo[id].name}</strong><small>{placed?'PLACED':owned?'OWNED · PLACE':affordable?`BUY ${displayInfo[id].price}g & PLACE`:`NEED ${displayInfo[id].price}g`}</small></i></button>})}<b className="catalogue-subhead">WORKSHOP FURNITURE</b>{(['shopkeeper',...workerIds] as PlacementId[]).map(id=>{const isCounter=id==='shopkeeper',placed=isCounter?g.shopkeeperSlot!==null:g.placedBenches[id as WorkerId]!==null,available=isCounter||g.hired.includes(id as WorkerId);return <button key={id} disabled={placed||!available} onClick={()=>placeBench(furnitureTile,id)}><span>{isCounter?'▤':workers[id as WorkerId].icon}</span><i><strong>{benchNames[id]}</strong><small>{placed?'PLACED':available?'OWNED · PLACE':'HIRE IN LEDGER'}</small></i></button>})}</div>})()}
       {activeDisplay && g.displays[activeDisplay].slot !== null && (()=>{const display=g.displays[activeDisplay],item=display.product&&products[display.product],slot=display.slot!,[x,y]=slotPositions[slot];return <div className="display-popup" style={{left:`${x}%`,top:`${y}%`}} role="dialog" aria-label={`${displayInfo[activeDisplay].name} controls`}><button className="picker-close" onClick={()=>setActiveDisplay(null)}>×</button><b>{displayInfo[activeDisplay].name}</b>{item?<><em>{item.icon} {item.name}</em><button onClick={()=>{setSelected(display.product);setActiveDisplay(null)}}>OFFER FOR SALE</button><button disabled={g.phase==='results'} onClick={()=>{clearDisplay(activeDisplay);setActiveDisplay(null)}}>RETURN TO STOCK</button></>:<><small>{selected?`Stock with ${products[selected].name}`:'Select an item in the stock room first.'}</small><button disabled={!selected||g.phase==='results'} onClick={()=>{stockDisplay(activeDisplay);setActiveDisplay(null)}}>STOCK SELECTED</button></>}<button disabled={g.phase!=='prep'} onClick={()=>rotateFurniture(activeDisplay)}>ROTATE ↻</button><button disabled={g.phase!=='prep'} onClick={()=>moveDisplay(activeDisplay)}>MOVE</button></div>})()}
       {g.shopkeeperSlot !== null && (() => { const [x, y] = slotPositions[g.shopkeeperSlot]; return <div className={`shopkeeper-station facing-${g.furnitureFacing.shopkeeper}`} style={{ left: `${x}%`, top: `${y}%` }}><button className="shop-counter" onClick={()=>rotateFurniture('shopkeeper')} aria-label="Rotate Sales Counter"><span>▤</span></button><img src={`${import.meta.env.BASE_URL}assets/shop/shopkeeper.png`} alt="Shopkeeper" draggable="false"/><small>SHOPKEEPER</small></div> })()}
       <div className="roaming-customers" aria-label="Customers in the shop">{g.customers.slice(0, 3).map((c, i) => { const [x, y] = customerPosition(c.id, i); return <button key={c.id} className={`roaming-customer ${i === 0 ? 'requesting' : 'browsing'} ${g.paused ? 'standing' : 'walking'}`} style={{ left: `${x}%`, top: `${y}%` }} title={`${c.name}, ${c.role}`} aria-label={`${c.name}, ${c.role}${i === 0 ? ', waiting at the counter' : ', browsing the shop'}`}><img src={`${import.meta.env.BASE_URL}assets/customers/${c.sprite}.png`} alt="" draggable="false"/>{i === 0 && <span className="request-bubble">{c.kind === 'supplier' ? '📦' : '?'}</span>}<b>{c.name}</b><small>{i === 0 ? c.role : 'Browsing'}</small><i style={{ width: `${c.patience / c.maxPatience * 100}%` }}/></button> })}</div>

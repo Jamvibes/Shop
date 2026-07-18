@@ -12,8 +12,10 @@ describe('continuous shop simulation', () => {
     expect(save.shopkeeperSlot).toBe(16)
     save.furnitureFacing.shelf = 1
     saveGame(save)
-    expect(loadSave().version).toBe(11)
+    expect(loadSave().version).toBe(12)
     expect(loadSave().displays.shelf.slot).toBe(12)
+    expect(loadSave().ownedDisplays.shelf).toBe(true)
+    expect(loadSave().ownedDisplays.weaponRack).toBe(false)
     expect(loadSave().furnitureFacing.shelf).toBe(1)
     expect(loadSave().speed).toBe(1)
     expect(loadSave().autoPause).toBe(true)
@@ -24,7 +26,7 @@ describe('continuous shop simulation', () => {
     delete (oldSave as Partial<typeof oldSave>).placedBenches
     localStorage.setItem('magic-and-steel-save', JSON.stringify(oldSave))
     const migrated = loadSave()
-    expect(migrated.version).toBe(11)
+    expect(migrated.version).toBe(12)
     expect(migrated.placedBenches.blacksmith).not.toBeNull()
     expect(migrated.shopkeeperSlot).not.toBeNull()
   })
