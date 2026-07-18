@@ -29,9 +29,9 @@ const slotPositions = Array.from({ length: gridColumns * gridRows }, (_, slot) =
   return [50 + (column - row) * 8.3, 25 + (column + row) * 5.5] as const
 })
 const help = [
-  'In preparation, select a hired workbench and click a glowing floor space to place it.',
+  'In preparation, click an empty floor tile to choose furniture for that space.',
   'Only workers whose benches are placed can craft. Click a placed bench to choose its recipes.',
-  'Open the shop when ready. Customers enter and walk to your counter.',
+  'Click a shelf or rack to stock it. Displayed goods attract browsers and sell for 8% more.',
   'Choose the requested stock, then sell, negotiate, suggest an alternative, or ask the customer to wait.',
 ]
 
@@ -44,6 +44,8 @@ function App() {
   const [resetArmed, setResetArmed] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [departure, setDeparture] = useState<{ sprite: string; product: ProductId } | null>(null)
+  const [furnitureTile, setFurnitureTile] = useState<number | null>(null)
+  const [activeDisplay, setActiveDisplay] = useState<DisplayId | null>(null)
   const active = g.customers[0] || null
   const occupiedSlots = new Set<number>([...Object.values(g.placedBenches).filter((slot): slot is number => slot !== null), ...Object.values(g.displays).map(display => display.slot).filter((slot): slot is number => slot !== null), ...(g.shopkeeperSlot === null ? [] : [g.shopkeeperSlot])])
   const browseSlots = slotPositions.map((_, slot) => slot).filter(slot => {
@@ -125,18 +127,18 @@ function App() {
     setNote(`${workers[id].name} is hired. Place the ${benchNames[id]} on a glowing floor space.`)
     return s
   })
-  const placeBench = (slot: number) => {
-    if (!placing || g.phase !== 'prep') return
+  const placeBench = (slot: number, choice: PlacementId | null = placing) => {
+    if (!choice || g.phase !== 'prep') return
     update(s => {
       for (const id of workerIds) if (s.placedBenches[id] === slot) s.placedBenches[id] = null
       for (const id of displayIds) if (s.displays[id].slot === slot) s.displays[id].slot = null
       if (s.shopkeeperSlot === slot) s.shopkeeperSlot = null
-      if (placing === 'shopkeeper') { s.shopkeeperSlot = slot; setNote('Sales Counter placed. The shopkeeper is ready to welcome customers.') }
-      else if (displayIds.includes(placing as DisplayId)) { s.displays[placing as DisplayId].slot = slot; setNote(`${benchNames[placing]} placed. Select stock, then fill it from the display panel.`) }
-      else { s.placedBenches[placing as WorkerId] = slot; setNote(`${benchNames[placing]} placed. Click ${workers[placing as WorkerId].name} to choose a recipe.`) }
+      if (choice === 'shopkeeper') { s.shopkeeperSlot = slot; setNote('Sales Counter placed. The shopkeeper is ready to welcome customers.') }
+      else if (displayIds.includes(choice as DisplayId)) { s.displays[choice as DisplayId].slot = slot; setNote(`${benchNames[choice]} placed. Click it to stock or move it.`) }
+      else { s.placedBenches[choice as WorkerId] = slot; setNote(`${benchNames[choice]} placed. Click ${workers[choice as WorkerId].name} to choose a recipe.`) }
       return s
     })
-    setPlacing(null)
+    setPlacing(null); setFurnitureTile(null)
   }
   const removeBench = (id: WorkerId) => update(s => {
     if (s.phase !== 'prep') return s
@@ -150,7 +152,7 @@ function App() {
   })
   const moveDisplay = (id: DisplayId) => update(s => {
     if (s.phase !== 'prep') return s
-    s.displays[id].slot = null; setPlacing(id); setNote(`${displayInfo[id].name} picked up. Choose a new grid space.`); return s
+    s.displays[id].slot = null; setPlacing(id); setActiveDisplay(null); setNote(`${displayInfo[id].name} picked up. Choose a new grid space.`); return s
   })
   const stockDisplay = (id: DisplayId) => update(s => {
     if (s.phase === 'results' || s.displays[id].slot === null) return s
@@ -207,11 +209,16 @@ function App() {
   const totalStock = Object.values(g.inventory).reduce((a, b) => a + b, 0)
   const selectedIsDisplayed = selected ? displayIds.some(id => g.displays[id].product === selected) : false
   const offer = active && selected && active.kind === 'buyer' ? Math.round(priceFor(active, selected, g.reputation) * (selectedIsDisplayed ? 1.08 : 1)) : 0
+  const placeableChoices: PlacementId[] = [
+    ...(g.shopkeeperSlot === null ? ['shopkeeper' as const] : []),
+    ...workerIds.filter(id => g.hired.includes(id) && g.placedBenches[id] === null),
+    ...displayIds.filter(id => g.displays[id].slot === null),
+  ]
 
   return <div className="game-shell">
     <header><div className="brand"><span>⚔</span><div><h1>MAGIC <i>&</i> STEEL</h1><p>The Wandering Anvil</p></div></div><div className="clock"><b>DAY {g.day} · {clock(g.minutes)}</b><small>{g.phase === 'prep' ? 'MORNING PREPARATION' : g.phase === 'open' ? (g.paused ? 'SHOP PAUSED' : `SHOP OPEN · ${g.speed}×`) : 'ACCOUNTS'}</small></div><div className="header-actions"><div className="wealth"><b>● {g.coins}g</b><small>Reputation {g.reputation >= 0 ? '+' : ''}{g.reputation}</small></div><button className="settings-toggle" onClick={() => setShowSettings(true)} aria-label="Open settings">⚙</button></div></header>
     <main><section className={`scene ${placing ? 'placement-mode' : ''}`}><div className="sign">✦ THE WANDERING ANVIL ✦</div><div className="room">
-      {g.phase === 'prep' && <div className="floor-grid" aria-label="Shop floor placement grid">{slotPositions.map(([x, y], slot) => { const occupant: PlacementId | undefined = g.shopkeeperSlot === slot ? 'shopkeeper' : workerIds.find(id => g.placedBenches[id] === slot) || displayIds.find(id => g.displays[id].slot === slot); return <button key={slot} className={`bench-slot ${occupant ? 'occupied' : ''}`} style={{ left: `${x}%`, top: `${y}%` }} onClick={() => placeBench(slot)} aria-label={`Grid row ${Math.floor(slot / gridColumns) + 1}, column ${slot % gridColumns + 1}${occupant ? `, occupied by ${benchNames[occupant]}` : ''}`}><span>{occupant ? '×' : '+'}</span></button>})}</div>}
+      {g.phase === 'prep' && <div className="floor-grid" aria-label="Shop floor placement grid">{slotPositions.map(([x, y], slot) => { const occupant: PlacementId | undefined = g.shopkeeperSlot === slot ? 'shopkeeper' : workerIds.find(id => g.placedBenches[id] === slot) || displayIds.find(id => g.displays[id].slot === slot); return <button key={slot} className={`bench-slot ${occupant ? 'occupied' : ''}`} style={{ left: `${x}%`, top: `${y}%` }} onClick={() => placing ? placeBench(slot) : !occupant && setFurnitureTile(slot)} aria-label={`Grid row ${Math.floor(slot / gridColumns) + 1}, column ${slot % gridColumns + 1}${occupant ? `, occupied by ${benchNames[occupant]}` : ', empty; choose furniture'}`}><span>{occupant ? '×' : '+'}</span></button>})}</div>}
       <div className="workshops">{workerIds.map(id => {
         const slot = g.placedBenches[id]; if (slot === null) return null
         const w = workers[id], ws = g.workerState[id], job = ws.active && products[ws.active.product], [x, y] = slotPositions[slot]
@@ -221,7 +228,9 @@ function App() {
           <div className="job-status">{job ? <><span>{job.icon}</span><small>{job.name}</small><div className="progress"><i style={{ width: `${ws.active!.progress / job.ticks * 100}%` }}/></div></> : <small>{ws.queue.length ? `${ws.queue.length} queued` : 'Ready'}</small>}</div>
         </div>
       })}</div>
-      {displayIds.map(id => { const display = g.displays[id]; if(display.slot === null)return null; const [x,y]=slotPositions[display.slot]; return <button key={id} className={`map-display ${id} ${display.product?'stocked':''}`} style={{left:`${x}%`,top:`${y}%`}} onClick={()=>display.product&&setSelected(display.product)} aria-label={`${displayInfo[id].name}${display.product?`, displaying ${products[display.product].name}`:', empty'}`}><span>{displayInfo[id].icon}</span>{display.product?<b>{products[display.product].icon}</b>:<small>EMPTY</small>}</button> })}
+      {displayIds.map(id => { const display = g.displays[id]; if(display.slot === null)return null; const [x,y]=slotPositions[display.slot]; return <button key={id} className={`map-display ${id} ${display.product?'stocked':''}`} style={{left:`${x}%`,top:`${y}%`}} onClick={()=>setActiveDisplay(id)} aria-label={`${displayInfo[id].name}${display.product?`, displaying ${products[display.product].name}`:', empty'}`}><img src={`${import.meta.env.BASE_URL}assets/displays/${id}.png`} alt=""/><span className="merchandise-slot">{display.product?products[display.product].icon:''}</span></button> })}
+      {furnitureTile !== null && (()=>{const [x,y]=slotPositions[furnitureTile];return <div className="floor-picker" style={{left:`${x}%`,top:`${y}%`}} role="dialog" aria-label="Choose furniture"><button className="picker-close" onClick={()=>setFurnitureTile(null)}>×</button><b>PLACE FURNITURE</b>{placeableChoices.map(id=><button key={id} onClick={()=>placeBench(furnitureTile,id)}><span>{displayIds.includes(id as DisplayId)?displayInfo[id as DisplayId].icon:id==='shopkeeper'?'▤':workers[id as WorkerId].icon}</span>{benchNames[id]}</button>)}{!placeableChoices.length&&<small>Everything is already placed.</small>}</div>})()}
+      {activeDisplay && g.displays[activeDisplay].slot !== null && (()=>{const display=g.displays[activeDisplay],item=display.product&&products[display.product],slot=display.slot!,[x,y]=slotPositions[slot];return <div className="display-popup" style={{left:`${x}%`,top:`${y}%`}} role="dialog" aria-label={`${displayInfo[activeDisplay].name} controls`}><button className="picker-close" onClick={()=>setActiveDisplay(null)}>×</button><b>{displayInfo[activeDisplay].name}</b>{item?<><em>{item.icon} {item.name}</em><button onClick={()=>{setSelected(display.product);setActiveDisplay(null)}}>OFFER FOR SALE</button><button disabled={g.phase==='results'} onClick={()=>{clearDisplay(activeDisplay);setActiveDisplay(null)}}>RETURN TO STOCK</button></>:<><small>{selected?`Stock with ${products[selected].name}`:'Select an item in the stock room first.'}</small><button disabled={!selected||g.phase==='results'} onClick={()=>{stockDisplay(activeDisplay);setActiveDisplay(null)}}>STOCK SELECTED</button></>}<button disabled={g.phase!=='prep'} onClick={()=>moveDisplay(activeDisplay)}>MOVE</button></div>})()}
       {g.shopkeeperSlot !== null && (() => { const [x, y] = slotPositions[g.shopkeeperSlot]; return <div className="shopkeeper-station" style={{ left: `${x}%`, top: `${y}%` }}><div className="shop-counter"><span>▤</span></div><img src={`${import.meta.env.BASE_URL}assets/shop/shopkeeper.png`} alt="Shopkeeper" draggable="false"/><small>SHOPKEEPER</small></div> })()}
       <div className="roaming-customers" aria-label="Customers in the shop">{g.customers.slice(0, 3).map((c, i) => { const [x, y] = customerPosition(c.id, i); return <button key={c.id} className={`roaming-customer ${i === 0 ? 'requesting' : 'browsing'} ${g.paused ? 'standing' : 'walking'}`} style={{ left: `${x}%`, top: `${y}%` }} title={`${c.name}, ${c.role}`} aria-label={`${c.name}, ${c.role}${i === 0 ? ', waiting at the counter' : ', browsing the shop'}`}><img src={`${import.meta.env.BASE_URL}assets/customers/${c.sprite}.png`} alt="" draggable="false"/>{i === 0 && <span className="request-bubble">{c.kind === 'supplier' ? '📦' : '?'}</span>}<b>{c.name}</b><small>{i === 0 ? c.role : 'Browsing'}</small><i style={{ width: `${c.patience / c.maxPatience * 100}%` }}/></button> })}</div>
       {departure && <div className="departing-customer"><img src={`${import.meta.env.BASE_URL}assets/customers/${departure.sprite}.png`} alt=""/><b>{products[departure.product].icon}</b></div>}
@@ -229,7 +238,6 @@ function App() {
     <aside className="ledger"><div className="ledger-head"><b>SHOP LEDGER</b><button onClick={reset}>{resetArmed ? 'CONFIRM RESET' : 'RESET SAVE'}</button></div>
       <section><h2>Common materials <small>capacity {8 + g.storageLevel * 4}</small></h2><div className="materials">{(Object.keys(g.materials) as MaterialId[]).map(m => <div key={m}><span>{materialIcons[m]}</span><b>{g.materials[m]}</b><small>{m}</small></div>)}</div></section>
       <section><h2>Shop furniture <small>{g.phase === 'prep' ? 'tap to place or move' : 'locked while open'}</small></h2><div className="bench-palette"><button className={placing === 'shopkeeper' ? 'placing' : ''} disabled={g.phase !== 'prep'} onClick={() => g.shopkeeperSlot === null ? setPlacing('shopkeeper') : moveCounter()}><span>▤</span><b>Sales Counter</b><small>{g.shopkeeperSlot === null ? 'Place in shop' : 'Placed · tap to move'}</small></button>{workerIds.map(id => { const hired = g.hired.includes(id), placed = g.placedBenches[id] !== null; return <button key={id} className={placing === id ? 'placing' : ''} disabled={g.phase !== 'prep'} onClick={() => hired ? (placed ? removeBench(id) : setPlacing(id)) : hire(id)}><span>{workers[id].icon}</span><b>{benchNames[id]}</b><small>{hired ? (placed ? 'Placed · tap to move' : 'Place in shop') : `Hire ${workers[id].name} · 35g`}</small></button> })}</div></section>
-      <section><h2>Merchandise displays <small>displayed goods sell for +8%</small></h2><div className="display-palette">{displayIds.map(id=>{const display=g.displays[id],item=display.product&&products[display.product];return <div key={id} className={placing===id?'placing':''}><button disabled={g.phase!=='prep'} onClick={()=>display.slot===null?setPlacing(id):moveDisplay(id)}><span>{displayInfo[id].icon}</span><b>{displayInfo[id].name}</b><small>{display.slot===null?'Place in shop':'Placed · move'}</small></button>{item?<><em>{item.icon} {item.name}</em><button disabled={g.phase==='results'} onClick={()=>clearDisplay(id)}>RETURN</button></>:<button disabled={g.phase==='results'||display.slot===null||!selected} onClick={()=>stockDisplay(id)}>STOCK SELECTED</button>}</div>})}</div></section>
       {worker && g.placedBenches[worker] !== null && <section><h2>{workers[worker].name} recipes <small>Lv {g.workerState[worker].level} · queue {g.workerState[worker].queue.length}/3</small></h2><div className="recipes">{recipesFor(worker, g.workerState[worker].level).map(p => { const r = products[p]; return <button key={p} onClick={() => queue(p)}><span>{r.icon}</span><b>{r.name}</b><small>{r.cost} {r.material} · {r.ticks} ticks · {r.price}g value</small></button> })}{g.workerState[worker].level < 3 && <div className="locked-recipe">🔒 More recipes at level {g.workerState[worker].level + 1} · XP {g.workerState[worker].xp}/{g.workerState[worker].level === 1 ? 3 : 8}</div>}</div></section>}
       <section><h2>Stock room <small>{totalStock} items</small></h2><div className="stock">{productIds.filter(p => g.inventory[p] > 0).map(p => <button className={selected === p ? 'selected' : ''} key={p} onClick={() => setSelected(p)}><span>{products[p].icon}</span><b>{products[p].name}</b><em>x{g.inventory[p]}</em><small>{products[p].category}</small></button>)}{!totalStock && <p className="empty">Craft goods to fill your shelves.</p>}</div></section>
       {g.phase === 'prep' && <button className="primary" onClick={open}>TURN SIGN TO OPEN</button>}
