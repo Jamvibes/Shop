@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import {
-  clock, freshSave, loadSave, makeCustomer, priceFor, products, recipesFor,
+  clock, craftableProducts, freshSave, loadSave, makeCustomer, priceFor, products, recipesFor,
   saveGame, workers, type MaterialId, type ProductId, type Save, type WorkerId,
 } from './game'
 import './style.css'
@@ -24,7 +24,7 @@ const help = [
   'In preparation, select a hired workbench and click a glowing floor space to place it.',
   'Only workers whose benches are placed can craft. Click a placed bench to choose its recipes.',
   'Open the shop when ready. Customers enter and walk to your counter.',
-  'Choose stock, then accept, haggle, suggest an alternative, or ask the customer to wait.',
+  'Choose the requested stock, then sell, negotiate, suggest an alternative, or ask the customer to wait.',
 ]
 
 function App() {
@@ -84,7 +84,7 @@ function App() {
     if (gone.length) { s.reputation = Math.max(-2, s.reputation - gone.length); setNote(`${gone[0].name} leaves after waiting.`) }
     s.customers = s.customers.filter(c => c.patience > 0)
     if (s.minutes % 30 === 0 && s.customers.length < 3 && s.minutes < 18 * 60) {
-      const visitor = makeCustomer(s.nextCustomer - 1, s.nextCustomer++)
+      const visitor = makeCustomer(s.nextCustomer - 1, s.nextCustomer++, craftableProducts(s))
       s.customers.push(visitor)
       if (s.autoPause) { s.paused = true; setNote(`${visitor.name} has a request. The shop is paused.`) }
       else setNote('A new visitor approaches the counter.')
@@ -141,7 +141,7 @@ function App() {
   const open = () => update(s => {
     if (!workerIds.some(id => s.placedBenches[id] !== null)) { setNote('Place at least one workbench before opening.'); return s }
     if (s.shopkeeperSlot === null) { setNote('Place the Sales Counter before opening the shop.'); return s }
-    const firstVisitor = makeCustomer(0, s.nextCustomer++)
+    const firstVisitor = makeCustomer(0, s.nextCustomer++, craftableProducts(s))
     s.phase = 'open'; s.tutorial = 2; s.customers.push(firstVisitor); s.paused = s.autoPause; setPlacing(null)
     setNote(s.autoPause ? `${firstVisitor.name} has the first request. The shop is paused.` : 'The sign turns to OPEN.'); return s
   })
@@ -157,11 +157,11 @@ function App() {
     if (action === 'wait') { c.patience = Math.min(c.maxPatience + 2, c.patience + 3); s.customers.push(s.customers.shift()!); setNote(`${c.name} browses.`); return s }
     if (action === 'refuse') { s.customers.shift(); s.served++; setNote(`${c.name} leaves.`); return s }
     if (!selected || !s.inventory[selected]) { setNote('Choose an item in stock.'); return s }
-    const r = products[selected], match = c.request === r.category, liked = c.likes.includes(r.category)
+    const r = products[selected], match = c.requestedProduct ? c.requestedProduct === selected : c.request === r.category, liked = c.likes.includes(r.category)
     if (action === 'suggest' && !liked) { s.reputation--; s.customers.shift(); s.served++; setNote(`${c.name} dislikes the suggestion.`); return s }
-    const base = priceFor(c, selected, s.reputation), success = action !== 'haggle' || Math.random() < (match ? .82 : liked ? .56 : .18)
+    const base = priceFor(c, selected, s.reputation), success = action === 'sell' ? match : action === 'suggest' ? liked : Math.random() < (match ? .82 : liked ? .56 : .18)
     if (success) { const price = action === 'haggle' ? Math.round(base * 1.18) : base; s.inventory[selected]--; s.coins += price; s.revenue += price; s.sales++; setNote(`${c.name} buys ${r.name} for ${price}g.`) }
-    else { s.reputation--; setNote(`${c.name} rejects the haggle.`) }
+    else { if(action === 'haggle')s.reputation--; setNote(action === 'haggle' ? `${c.name} rejects the negotiation.` : `${c.name} refuses ${r.name}; it is not what they requested.`) }
     s.customers.shift(); s.served++; setSelected(null); return s
   })
   const nextDay = () => update(s => { s.day++; s.phase = 'prep'; s.minutes = 480; s.customers = []; s.served = 0; s.sales = 0; s.revenue = 0; s.expenses = 0; setNote(`Day ${s.day}. Arrange the shop before opening.`); return s })
@@ -192,7 +192,7 @@ function App() {
       {worker && g.placedBenches[worker] !== null && <section><h2>{workers[worker].name} recipes <small>Lv {g.workerState[worker].level} · queue {g.workerState[worker].queue.length}/3</small></h2><div className="recipes">{recipesFor(worker, g.workerState[worker].level).map(p => { const r = products[p]; return <button key={p} onClick={() => queue(p)}><span>{r.icon}</span><b>{r.name}</b><small>{r.cost} {r.material} · {r.ticks} ticks · {r.price}g value</small></button> })}{g.workerState[worker].level < 3 && <div className="locked-recipe">🔒 More recipes at level {g.workerState[worker].level + 1} · XP {g.workerState[worker].xp}/{g.workerState[worker].level === 1 ? 3 : 8}</div>}</div></section>}
       <section><h2>Stock room <small>{totalStock} items</small></h2><div className="stock">{productIds.filter(p => g.inventory[p] > 0).map(p => <button className={selected === p ? 'selected' : ''} key={p} onClick={() => setSelected(p)}><span>{products[p].icon}</span><b>{products[p].name}</b><em>x{g.inventory[p]}</em><small>{products[p].category}</small></button>)}{!totalStock && <p className="empty">Craft goods to fill your shelves.</p>}</div></section>
       {g.phase === 'prep' && <button className="primary" onClick={open}>TURN SIGN TO OPEN</button>}
-      {g.phase === 'open' && <><div className="open-controls"><button onClick={() => update(s => { s.paused = !s.paused; return s })}>{g.paused ? '▶ RESUME' : 'Ⅱ PAUSE'}</button><div className="speed-controls" aria-label="Game speed"><button className={g.speed === 1 ? 'active' : ''} onClick={() => update(s => { s.speed = 1; return s })}>1×</button><button className={g.speed === 2 ? 'active' : ''} onClick={() => update(s => { s.speed = 2; return s })}>2×</button></div><span>Visitors {g.customers.length}/3</span></div>{active ? <section className="trade"><h2>{active.icon} {active.name}</h2><p>{active.kind === 'supplier' ? `A bundle of ${active.material} for ${active.cost}g.` : `“I'm looking for ${active.request}. What do you have?”`}</p>{selected && <div className="quoted">{products[selected].icon} {products[selected].name} · {offer}g</div>}<div className="trade-actions">{active.kind === 'supplier' ? <><button onClick={() => serve('buy')}>BUY</button><button onClick={() => serve('refuse')}>DECLINE</button></> : <><button disabled={!selected} onClick={() => serve('sell')}>ACCEPT OFFER</button><button disabled={!selected} onClick={() => serve('haggle')}>HAGGLE +18%</button><button disabled={!selected} onClick={() => serve('suggest')}>SUGGEST ITEM</button><button onClick={() => serve('wait')}>ASK TO WAIT</button><button onClick={() => serve('refuse')}>REFUSE</button></>}</div></section> : <p className="empty">The counter is clear.</p>}</>}
+      {g.phase === 'open' && <><div className="open-controls"><button onClick={() => update(s => { s.paused = !s.paused; return s })}>{g.paused ? '▶ RESUME' : 'Ⅱ PAUSE'}</button><div className="speed-controls" aria-label="Game speed"><button className={g.speed === 1 ? 'active' : ''} onClick={() => update(s => { s.speed = 1; return s })}>1×</button><button className={g.speed === 2 ? 'active' : ''} onClick={() => update(s => { s.speed = 2; return s })}>2×</button></div><span>Visitors {g.customers.length}/3</span></div>{active ? <section className="trade"><h2>{active.icon} {active.name}</h2><p>{active.kind === 'supplier' ? `“I can sell you ${active.amount} ${active.material} for ${active.cost}g.”` : active.requestedProduct ? `“I'm looking for a ${products[active.requestedProduct].name}. Do you have one?”` : `“I'm looking for something in the ${active.request} category. What can you offer?”`}</p>{selected && active.kind === 'buyer' && <div className="quoted">{products[selected].icon} {products[selected].name} · {offer}g</div>}<div className="trade-actions">{active.kind === 'supplier' ? <><button onClick={() => serve('buy')}>ACCEPT OFFER</button><button onClick={() => serve('refuse')}>DECLINE</button></> : <><button disabled={!selected} onClick={() => serve('sell')}>SELL ITEM</button><button disabled={!selected} onClick={() => serve('haggle')}>NEGOTIATE +18%</button><button disabled={!selected} onClick={() => serve('suggest')}>SUGGEST ALTERNATIVE</button><button onClick={() => serve('wait')}>ASK TO WAIT</button><button onClick={() => serve('refuse')}>REFUSE SALE</button></>}</div></section> : <p className="empty">The counter is clear.</p>}</>}
       {g.phase === 'results' && <section className="results"><h2>Day {g.day} accounts</h2><div><span>Items sold</span><b>{g.sales}</b></div><div><span>Sales</span><b>+{g.revenue}g</b></div><div><span>Expenses</span><b>-{g.expenses}g</b></div><button className="upgrade" onClick={() => update(s => { if (s.coins >= 65) { s.coins -= 65; s.storageLevel++; setNote('Stockroom expanded.') } return s })}>EXPAND STOCKROOM · 65g<small>+4 material capacity</small></button><button className="primary" onClick={nextDay}>BEGIN DAY {g.day + 1}</button></section>}
     </aside></main>
     {showSettings && <div className="settings-backdrop" onMouseDown={() => setShowSettings(false)}><section className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={event => event.stopPropagation()}><button className="settings-close" onClick={() => setShowSettings(false)} aria-label="Close settings">×</button><h2 id="settings-title">SHOP SETTINGS</h2><div className="setting-row"><div><b>Automatic pause</b><small>Pause whenever a new visitor arrives with a request.</small></div><button className={`toggle ${g.autoPause ? 'on' : ''}`} role="switch" aria-checked={g.autoPause} onClick={() => update(s => { s.autoPause = !s.autoPause; return s })}><span/>{g.autoPause ? 'ON' : 'OFF'}</button></div><div className="setting-row"><div><b>Game speed</b><small>Choose the normal or accelerated shop clock.</small></div><div className="settings-speed"><button className={g.speed === 1 ? 'active' : ''} onClick={() => update(s => { s.speed = 1; return s })}>1×</button><button className={g.speed === 2 ? 'active' : ''} onClick={() => update(s => { s.speed = 2; return s })}>2×</button></div></div><p>Settings save automatically on this device.</p></section></div>}

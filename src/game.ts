@@ -25,7 +25,7 @@ export const workers:Record<WorkerId,{name:string;icon:string;wage:number;color:
  blacksmith:{name:'Blacksmith',icon:'⚒',wage:12,color:'#bd6448'},leatherworker:{name:'Leatherworker',icon:'✂',wage:10,color:'#c69250'},alchemist:{name:'Alchemist',icon:'⚗',wage:11,color:'#735c9d'},carpenter:{name:'Carpenter',icon:'▰',wage:9,color:'#648a54'}
 }
 export type CustomerSprite='warden'|'ranger'|'cleric'|'wizard'|'knight'|'paladin'|'druid'|'trader'|'woodcutter'|'herbalist'
-export type Customer={id:number;name:string;role:string;icon:string;sprite:CustomerSprite;likes:Recipe['category'][];request:Recipe['category'];patience:number;maxPatience:number;kind:'buyer'|'supplier';material?:MaterialId;amount?:number;cost?:number}
+export type Customer={id:number;name:string;role:string;icon:string;sprite:CustomerSprite;likes:Recipe['category'][];request:Recipe['category'];requestedProduct?:ProductId;patience:number;maxPatience:number;kind:'buyer'|'supplier';material?:MaterialId;amount?:number;cost?:number}
 export const customerTemplates:Omit<Customer,'id'|'patience'>[]=[
  {name:'Mara',role:'Trail Warden',icon:'🛡️',sprite:'warden',likes:['blade','potion'],request:'blade',maxPatience:7,kind:'buyer'},
  {name:'Sable',role:'Marsh Ranger',icon:'🏹',sprite:'ranger',likes:['bow','potion','armour'],request:'bow',maxPatience:8,kind:'buyer'},
@@ -54,6 +54,15 @@ export const loadSave=():Save=>{try{
 }catch{return freshSave()}}
 export const saveGame=(s:Save)=>localStorage.setItem('magic-and-steel-save',JSON.stringify(s))
 export const recipesFor=(w:WorkerId,level:number)=>(Object.keys(products) as ProductId[]).filter(p=>products[p].worker===w&&products[p].level<=level)
-export const priceFor=(c:Customer,p:ProductId,reputation=0)=>Math.round(products[p].price*(c.request===products[p].category?1.12:c.likes.includes(products[p].category)?.96:.62)*(1+reputation*.02))
-export const makeCustomer=(index:number,id:number):Customer=>{const t=customerTemplates[index%customerTemplates.length];return {...t,id,patience:t.maxPatience}}
+export const priceFor=(c:Customer,p:ProductId,reputation=0)=>Math.round(products[p].price*(c.requestedProduct===p?1.18:!c.requestedProduct&&c.request===products[p].category?1.12:c.likes.includes(products[p].category)?.96:.62)*(1+reputation*.02))
+export const craftableProducts=(s:Pick<Save,'hired'|'placedBenches'|'workerState'>)=>(Object.keys(products) as ProductId[]).filter(product=>{const recipe=products[product];return s.hired.includes(recipe.worker)&&s.placedBenches[recipe.worker]!==null&&recipe.level<=s.workerState[recipe.worker].level})
+export const makeCustomer=(index:number,id:number,availableProducts:ProductId[]=(Object.keys(products) as ProductId[])):Customer=>{
+ const t=customerTemplates[index%customerTemplates.length]
+ if(t.kind==='supplier')return {...t,id,patience:t.maxPatience}
+ const available=availableProducts.length?availableProducts:(Object.keys(products) as ProductId[]).filter(product=>products[product].level===1)
+ const preferred=available.filter(product=>t.likes.includes(products[product].category))
+ const candidates=preferred.length?preferred:available
+ const chosen=candidates[(id+index)%candidates.length]
+ return {...t,id,patience:t.maxPatience,request:products[chosen].category,requestedProduct:id%2===1?chosen:undefined}
+}
 export const clock=(minutes:number)=>`${Math.floor(minutes/60)}:${String(minutes%60).padStart(2,'0')}`

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { customerTemplates, freshSave, loadSave, makeCustomer, priceFor, products, recipesFor, saveGame } from './game'
+import { craftableProducts, customerTemplates, freshSave, loadSave, makeCustomer, priceFor, products, recipesFor, saveGame } from './game'
 
 describe('continuous shop simulation', () => {
   beforeEach(() => localStorage.clear())
@@ -44,6 +44,17 @@ describe('continuous shop simulation', () => {
   it('rewards matching customer requests', () => {
     const customer = makeCustomer(0, 1)
     expect(priceFor(customer, 'shortsword')).toBeGreaterThan(priceFor(customer, 'leatherShirt'))
+  })
+
+  it('alternates exact-item and category requests using recipes the shop can craft', () => {
+    const save = freshSave()
+    const available = craftableProducts(save)
+    expect(available).toEqual(['shortsword', 'healingPotion'])
+    const exactRequest = makeCustomer(0, 1, available)
+    const categoryRequest = makeCustomer(1, 2, available)
+    expect(available).toContain(exactRequest.requestedProduct)
+    expect(categoryRequest.requestedProduct).toBeUndefined()
+    expect(available.map(product => products[product].category)).toContain(categoryRequest.request)
   })
 
   it('includes the complete illustrated adventurer and supplier cast', () => {
