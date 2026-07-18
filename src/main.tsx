@@ -12,9 +12,13 @@ const productIds = Object.keys(products) as ProductId[]
 const benchNames: Record<WorkerId, string> = {
   blacksmith: 'Forge', leatherworker: 'Stitching Table', alchemist: 'Brewing Table', carpenter: 'Woodworking Bench',
 }
-const slotPositions = [
-  [18, 25], [39, 19], [67, 23], [82, 40], [21, 58], [39, 70], [65, 68], [82, 59],
-]
+const gridColumns = 6
+const gridRows = 5
+const slotPositions = Array.from({ length: gridColumns * gridRows }, (_, slot) => {
+  const column = slot % gridColumns
+  const row = Math.floor(slot / gridColumns)
+  return [50 + (column - row) * 8.3, 25 + (column + row) * 4.9] as const
+})
 const help = [
   'In preparation, select a hired workbench and click a glowing floor space to place it.',
   'Only workers whose benches are placed can craft. Click a placed bench to choose its recipes.',
@@ -142,7 +146,7 @@ function App() {
     <header><div className="brand"><span>⚔</span><div><h1>MAGIC <i>&</i> STEEL</h1><p>The Wandering Anvil</p></div></div><div className="clock"><b>DAY {g.day} · {clock(g.minutes)}</b><small>{g.phase === 'prep' ? 'MORNING PREPARATION' : g.phase === 'open' ? (g.paused ? 'SHOP PAUSED' : 'SHOP OPEN') : 'ACCOUNTS'}</small></div><div className="wealth"><b>● {g.coins}g</b><small>Reputation {g.reputation >= 0 ? '+' : ''}{g.reputation}</small></div></header>
     <main><section className={`scene ${placing ? 'placement-mode' : ''}`}><div className="sign">✦ THE WANDERING ANVIL ✦</div><div className="room">
       <div className="window">☾</div><div className="wall-shelf">⚗　▤　♟</div>
-      {g.phase === 'prep' && slotPositions.map(([x, y], slot) => <button key={slot} className={`bench-slot ${Object.values(g.placedBenches).includes(slot) ? 'occupied' : ''}`} style={{ left: `${x}%`, top: `${y}%` }} onClick={() => placeBench(slot)} aria-label={`Floor space ${slot + 1}`}><span>+</span></button>)}
+      {g.phase === 'prep' && <div className="floor-grid" aria-label="Shop floor placement grid">{slotPositions.map(([x, y], slot) => { const occupant = workerIds.find(id => g.placedBenches[id] === slot); return <button key={slot} className={`bench-slot ${occupant ? 'occupied' : ''}`} style={{ left: `${x}%`, top: `${y}%` }} onClick={() => placeBench(slot)} aria-label={`Grid row ${Math.floor(slot / gridColumns) + 1}, column ${slot % gridColumns + 1}${occupant ? `, occupied by ${benchNames[occupant]}` : ''}`}><span>{occupant ? '×' : '+'}</span></button>})}</div>}
       <div className="workshops">{workerIds.map(id => {
         const slot = g.placedBenches[id]; if (slot === null) return null
         const w = workers[id], ws = g.workerState[id], job = ws.active && products[ws.active.product], [x, y] = slotPositions[slot]
