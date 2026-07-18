@@ -152,7 +152,7 @@ function App() {
         const w = workers[id], ws = g.workerState[id], job = ws.active && products[ws.active.product], [x, y] = slotPositions[slot]
         return <div className={`placed-workstation ${worker === id ? 'chosen' : ''}`} style={{ left: `${x}%`, top: `${y}%`, '--coat': w.color } as React.CSSProperties} key={id}>
           <div className="map-bench" title={benchNames[id]}><span>{w.icon}</span></div>
-          <button className="map-worker" onClick={() => setWorker(id)} aria-label={`Select ${w.name} and view recipes`}><i/><span>●</span><b>{w.name}</b></button>
+          <button className="map-worker" onClick={() => setWorker(id)} aria-label={`Select ${w.name} and view recipes`}><img src={`${import.meta.env.BASE_URL}assets/workers/${id}.png`} alt="" draggable="false"/><b>{w.name}</b></button>
           <div className="job-status">{job ? <><span>{job.icon}</span><small>{job.name}</small><div className="progress"><i style={{ width: `${ws.active!.progress / job.ticks * 100}%` }}/></div></> : <small>{ws.queue.length ? `${ws.queue.length} queued` : 'Ready'}</small>}</div>
         </div>
       })}</div>
