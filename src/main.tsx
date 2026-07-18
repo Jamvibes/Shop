@@ -34,15 +34,16 @@ function App() {
   const [placing, setPlacing] = useState<PlacementId | null>(null)
   const [note, setNote] = useState('Morning light fills the Wandering Anvil.')
   const [resetArmed, setResetArmed] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const active = g.customers[0] || null
   const update = (fn: (s: Save) => Save) => setG(old => fn(structuredClone(old)))
 
   useEffect(() => saveGame(g), [g])
   useEffect(() => {
     if (g.phase !== 'open' || g.paused) return
-    const timer = setInterval(() => update(tick), 1400)
+    const timer = setInterval(() => update(tick), 1400 / g.speed)
     return () => clearInterval(timer)
-  }, [g.phase, g.paused])
+  }, [g.phase, g.paused, g.speed])
 
   function tick(s: Save) {
     s.minutes += 15
@@ -68,7 +69,10 @@ function App() {
     if (gone.length) { s.reputation = Math.max(-2, s.reputation - gone.length); setNote(`${gone[0].name} leaves after waiting.`) }
     s.customers = s.customers.filter(c => c.patience > 0)
     if (s.minutes % 30 === 0 && s.customers.length < 3 && s.minutes < 18 * 60) {
-      s.customers.push(makeCustomer(s.nextCustomer - 1, s.nextCustomer++)); setNote('The doorbell jingles.')
+      const visitor = makeCustomer(s.nextCustomer - 1, s.nextCustomer++)
+      s.customers.push(visitor)
+      if (s.autoPause) { s.paused = true; setNote(`${visitor.name} has a request. The shop is paused.`) }
+      else setNote('A new visitor approaches the counter.')
     }
     if (s.minutes >= 18 * 60) { s.minutes = 18 * 60; s.phase = 'results'; s.paused = false; closeAccounts(s) }
     return s
@@ -122,8 +126,9 @@ function App() {
   const open = () => update(s => {
     if (!workerIds.some(id => s.placedBenches[id] !== null)) { setNote('Place at least one workbench before opening.'); return s }
     if (s.shopkeeperSlot === null) { setNote('Place the Sales Counter before opening the shop.'); return s }
-    s.phase = 'open'; s.tutorial = 2; s.customers.push(makeCustomer(0, s.nextCustomer++)); setPlacing(null)
-    setNote('The sign turns to OPEN.'); return s
+    const firstVisitor = makeCustomer(0, s.nextCustomer++)
+    s.phase = 'open'; s.tutorial = 2; s.customers.push(firstVisitor); s.paused = s.autoPause; setPlacing(null)
+    setNote(s.autoPause ? `${firstVisitor.name} has the first request. The shop is paused.` : 'The sign turns to OPEN.'); return s
   })
   const serve = (action: 'sell' | 'haggle' | 'suggest' | 'wait' | 'refuse' | 'buy') => update(s => {
     const c = s.customers[0]; if (!c) return s
@@ -151,7 +156,7 @@ function App() {
   const offer = active && selected && active.kind === 'buyer' ? priceFor(active, selected, g.reputation) : 0
 
   return <div className="game-shell">
-    <header><div className="brand"><span>⚔</span><div><h1>MAGIC <i>&</i> STEEL</h1><p>The Wandering Anvil</p></div></div><div className="clock"><b>DAY {g.day} · {clock(g.minutes)}</b><small>{g.phase === 'prep' ? 'MORNING PREPARATION' : g.phase === 'open' ? (g.paused ? 'SHOP PAUSED' : 'SHOP OPEN') : 'ACCOUNTS'}</small></div><div className="wealth"><b>● {g.coins}g</b><small>Reputation {g.reputation >= 0 ? '+' : ''}{g.reputation}</small></div></header>
+    <header><div className="brand"><span>⚔</span><div><h1>MAGIC <i>&</i> STEEL</h1><p>The Wandering Anvil</p></div></div><div className="clock"><b>DAY {g.day} · {clock(g.minutes)}</b><small>{g.phase === 'prep' ? 'MORNING PREPARATION' : g.phase === 'open' ? (g.paused ? 'SHOP PAUSED' : `SHOP OPEN · ${g.speed}×`) : 'ACCOUNTS'}</small></div><div className="header-actions"><div className="wealth"><b>● {g.coins}g</b><small>Reputation {g.reputation >= 0 ? '+' : ''}{g.reputation}</small></div><button className="settings-toggle" onClick={() => setShowSettings(true)} aria-label="Open settings">⚙</button></div></header>
     <main><section className={`scene ${placing ? 'placement-mode' : ''}`}><div className="sign">✦ THE WANDERING ANVIL ✦</div><div className="room">
       {g.phase === 'prep' && <div className="floor-grid" aria-label="Shop floor placement grid">{slotPositions.map(([x, y], slot) => { const occupant: PlacementId | undefined = g.shopkeeperSlot === slot ? 'shopkeeper' : workerIds.find(id => g.placedBenches[id] === slot); return <button key={slot} className={`bench-slot ${occupant ? 'occupied' : ''}`} style={{ left: `${x}%`, top: `${y}%` }} onClick={() => placeBench(slot)} aria-label={`Grid row ${Math.floor(slot / gridColumns) + 1}, column ${slot % gridColumns + 1}${occupant ? `, occupied by ${benchNames[occupant]}` : ''}`}><span>{occupant ? '×' : '+'}</span></button>})}</div>}
       <div className="workshops">{workerIds.map(id => {
@@ -172,9 +177,10 @@ function App() {
       {worker && g.placedBenches[worker] !== null && <section><h2>{workers[worker].name} recipes <small>Lv {g.workerState[worker].level} · queue {g.workerState[worker].queue.length}/3</small></h2><div className="recipes">{recipesFor(worker, g.workerState[worker].level).map(p => { const r = products[p]; return <button key={p} onClick={() => queue(p)}><span>{r.icon}</span><b>{r.name}</b><small>{r.cost} {r.material} · {r.ticks} ticks · {r.price}g value</small></button> })}{g.workerState[worker].level < 3 && <div className="locked-recipe">🔒 More recipes at level {g.workerState[worker].level + 1} · XP {g.workerState[worker].xp}/{g.workerState[worker].level === 1 ? 3 : 8}</div>}</div></section>}
       <section><h2>Stock room <small>{totalStock} items</small></h2><div className="stock">{productIds.filter(p => g.inventory[p] > 0).map(p => <button className={selected === p ? 'selected' : ''} key={p} onClick={() => setSelected(p)}><span>{products[p].icon}</span><b>{products[p].name}</b><em>x{g.inventory[p]}</em><small>{products[p].category}</small></button>)}{!totalStock && <p className="empty">Craft goods to fill your shelves.</p>}</div></section>
       {g.phase === 'prep' && <button className="primary" onClick={open}>TURN SIGN TO OPEN</button>}
-      {g.phase === 'open' && <><div className="open-controls"><button onClick={() => update(s => { s.paused = !s.paused; return s })}>{g.paused ? '▶ RESUME' : 'Ⅱ PAUSE'}</button><span>Visitors {g.customers.length}/3</span></div>{active ? <section className="trade"><h2>{active.icon} {active.name}</h2><p>{active.kind === 'supplier' ? `A bundle of ${active.material} for ${active.cost}g.` : `“I'm looking for ${active.request}. What do you have?”`}</p>{selected && <div className="quoted">{products[selected].icon} {products[selected].name} · {offer}g</div>}<div className="trade-actions">{active.kind === 'supplier' ? <><button onClick={() => serve('buy')}>BUY</button><button onClick={() => serve('refuse')}>DECLINE</button></> : <><button disabled={!selected} onClick={() => serve('sell')}>ACCEPT OFFER</button><button disabled={!selected} onClick={() => serve('haggle')}>HAGGLE +18%</button><button disabled={!selected} onClick={() => serve('suggest')}>SUGGEST ITEM</button><button onClick={() => serve('wait')}>ASK TO WAIT</button><button onClick={() => serve('refuse')}>REFUSE</button></>}</div></section> : <p className="empty">The counter is clear.</p>}</>}
+      {g.phase === 'open' && <><div className="open-controls"><button onClick={() => update(s => { s.paused = !s.paused; return s })}>{g.paused ? '▶ RESUME' : 'Ⅱ PAUSE'}</button><div className="speed-controls" aria-label="Game speed"><button className={g.speed === 1 ? 'active' : ''} onClick={() => update(s => { s.speed = 1; return s })}>1×</button><button className={g.speed === 2 ? 'active' : ''} onClick={() => update(s => { s.speed = 2; return s })}>2×</button></div><span>Visitors {g.customers.length}/3</span></div>{active ? <section className="trade"><h2>{active.icon} {active.name}</h2><p>{active.kind === 'supplier' ? `A bundle of ${active.material} for ${active.cost}g.` : `“I'm looking for ${active.request}. What do you have?”`}</p>{selected && <div className="quoted">{products[selected].icon} {products[selected].name} · {offer}g</div>}<div className="trade-actions">{active.kind === 'supplier' ? <><button onClick={() => serve('buy')}>BUY</button><button onClick={() => serve('refuse')}>DECLINE</button></> : <><button disabled={!selected} onClick={() => serve('sell')}>ACCEPT OFFER</button><button disabled={!selected} onClick={() => serve('haggle')}>HAGGLE +18%</button><button disabled={!selected} onClick={() => serve('suggest')}>SUGGEST ITEM</button><button onClick={() => serve('wait')}>ASK TO WAIT</button><button onClick={() => serve('refuse')}>REFUSE</button></>}</div></section> : <p className="empty">The counter is clear.</p>}</>}
       {g.phase === 'results' && <section className="results"><h2>Day {g.day} accounts</h2><div><span>Items sold</span><b>{g.sales}</b></div><div><span>Sales</span><b>+{g.revenue}g</b></div><div><span>Expenses</span><b>-{g.expenses}g</b></div><button className="upgrade" onClick={() => update(s => { if (s.coins >= 65) { s.coins -= 65; s.storageLevel++; setNote('Stockroom expanded.') } return s })}>EXPAND STOCKROOM · 65g<small>+4 material capacity</small></button><button className="primary" onClick={nextDay}>BEGIN DAY {g.day + 1}</button></section>}
     </aside></main>
+    {showSettings && <div className="settings-backdrop" onMouseDown={() => setShowSettings(false)}><section className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={event => event.stopPropagation()}><button className="settings-close" onClick={() => setShowSettings(false)} aria-label="Close settings">×</button><h2 id="settings-title">SHOP SETTINGS</h2><div className="setting-row"><div><b>Automatic pause</b><small>Pause whenever a new visitor arrives with a request.</small></div><button className={`toggle ${g.autoPause ? 'on' : ''}`} role="switch" aria-checked={g.autoPause} onClick={() => update(s => { s.autoPause = !s.autoPause; return s })}><span/>{g.autoPause ? 'ON' : 'OFF'}</button></div><div className="setting-row"><div><b>Game speed</b><small>Choose the normal or accelerated shop clock.</small></div><div className="settings-speed"><button className={g.speed === 1 ? 'active' : ''} onClick={() => update(s => { s.speed = 1; return s })}>1×</button><button className={g.speed === 2 ? 'active' : ''} onClick={() => update(s => { s.speed = 2; return s })}>2×</button></div></div><p>Settings save automatically on this device.</p></section></div>}
     <footer><div><b>SHOPKEEPER'S NOTE</b><p>{help[Math.min(g.tutorial, help.length - 1)]}</p></div><span>✓ Saved on this device</span></footer>
   </div>
 }
