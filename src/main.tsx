@@ -29,7 +29,7 @@ const help = [
 function App() {
   const [g, setG] = useState<Save>(loadSave)
   const [selected, setSelected] = useState<ProductId | null>(null)
-  const [worker, setWorker] = useState<WorkerId | null>('blacksmith')
+  const [worker, setWorker] = useState<WorkerId | null>(null)
   const [placing, setPlacing] = useState<WorkerId | null>(null)
   const [note, setNote] = useState('Morning light fills the Wandering Anvil.')
   const [resetArmed, setResetArmed] = useState(false)
@@ -94,7 +94,7 @@ function App() {
     update(s => {
       for (const id of workerIds) if (s.placedBenches[id] === slot) s.placedBenches[id] = null
       s.placedBenches[placing] = slot
-      setWorker(placing); setNote(`${benchNames[placing]} placed. ${workers[placing].name} is now in the shop.`)
+      setNote(`${benchNames[placing]} placed. Click ${workers[placing].name} to choose a recipe.`)
       return s
     })
     setPlacing(null)
@@ -150,7 +150,11 @@ function App() {
       <div className="workshops">{workerIds.map(id => {
         const slot = g.placedBenches[id]; if (slot === null) return null
         const w = workers[id], ws = g.workerState[id], job = ws.active && products[ws.active.product], [x, y] = slotPositions[slot]
-        return <button className={`workbench placed ${worker === id ? 'chosen' : ''}`} style={{ left: `${x}%`, top: `${y}%` }} key={id} onClick={() => setWorker(id)}><div className="bench-object">{w.icon}</div><div className="sprite" style={{ '--coat': w.color } as React.CSSProperties}><i/><span>●</span></div><b>{w.name}</b><small>{benchNames[id]} · Lv {ws.level}</small>{job ? <><em>{job.icon} {job.name}</em><div className="progress"><i style={{ width: `${ws.active!.progress / job.ticks * 100}%` }}/></div></> : <em>{ws.queue.length ? `${ws.queue.length} queued` : 'Ready'}</em>}</button>
+        return <div className={`placed-workstation ${worker === id ? 'chosen' : ''}`} style={{ left: `${x}%`, top: `${y}%`, '--coat': w.color } as React.CSSProperties} key={id}>
+          <div className="map-bench" title={benchNames[id]}><span>{w.icon}</span></div>
+          <button className="map-worker" onClick={() => setWorker(id)} aria-label={`Select ${w.name} and view recipes`}><i/><span>●</span><b>{w.name}</b></button>
+          <div className="job-status">{job ? <><span>{job.icon}</span><small>{job.name}</small><div className="progress"><i style={{ width: `${ws.active!.progress / job.ticks * 100}%` }}/></div></> : <small>{ws.queue.length ? `${ws.queue.length} queued` : 'Ready'}</small>}</div>
+        </div>
       })}</div>
       <div className="display-rack">{g.display.map(p => <span key={p}>{products[p].icon}<small>{g.inventory[p]}</small></span>)}</div><div className="counter"><span className="you">🧑<small>YOU</small></span></div>
       <div className="queue">{g.customers.slice(0, 3).map((c, i) => <button key={c.id} className={`visitor q${i}`}><span>{c.icon}</span><b>{c.name}</b><i style={{ width: `${c.patience / c.maxPatience * 100}%` }}/></button>)}</div><div className="door">{g.phase === 'open' ? 'OPEN' : 'CLOSED'}</div>
