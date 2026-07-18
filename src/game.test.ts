@@ -11,7 +11,7 @@ describe('continuous shop simulation', () => {
     expect(save.placedBenches.alchemist).toBe(23)
     expect(save.shopkeeperSlot).toBe(16)
     saveGame(save)
-    expect(loadSave().version).toBe(7)
+    expect(loadSave().version).toBe(8)
     expect(loadSave().speed).toBe(1)
     expect(loadSave().autoPause).toBe(true)
   })
@@ -21,7 +21,7 @@ describe('continuous shop simulation', () => {
     delete (oldSave as Partial<typeof oldSave>).placedBenches
     localStorage.setItem('magic-and-steel-save', JSON.stringify(oldSave))
     const migrated = loadSave()
-    expect(migrated.version).toBe(7)
+    expect(migrated.version).toBe(8)
     expect(migrated.placedBenches.blacksmith).not.toBeNull()
     expect(migrated.shopkeeperSlot).not.toBeNull()
   })
@@ -33,6 +33,12 @@ describe('continuous shop simulation', () => {
     saveGame(save)
     expect(loadSave().speed).toBe(2)
     expect(loadSave().autoPause).toBe(false)
+  })
+
+  it('migrates sixth-column furniture into the 5 by 5 grid', () => {
+    const oldSave = { ...freshSave(), version: 7, shopkeeperSlot: 29 }
+    localStorage.setItem('magic-and-steel-save', JSON.stringify(oldSave))
+    expect(loadSave().shopkeeperSlot).toBeLessThan(25)
   })
 
   it('rewards matching customer requests', () => {

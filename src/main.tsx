@@ -13,12 +13,12 @@ type PlacementId = WorkerId | 'shopkeeper'
 const benchNames: Record<PlacementId, string> = {
   blacksmith: 'Forge', leatherworker: 'Stitching Table', alchemist: 'Brewing Table', carpenter: 'Woodworking Bench', shopkeeper: 'Sales Counter',
 }
-const gridColumns = 6
+const gridColumns = 5
 const gridRows = 5
 const slotPositions = Array.from({ length: gridColumns * gridRows }, (_, slot) => {
   const column = slot % gridColumns
   const row = Math.floor(slot / gridColumns)
-  return [50 + (column - row) * 8.3, 25 + (column + row) * 4.9] as const
+  return [50 + (column - row) * 8.3, 25 + (column + row) * 5.5] as const
 })
 const help = [
   'In preparation, select a hired workbench and click a glowing floor space to place it.',
