@@ -1,42 +1,167 @@
-import React,{useEffect,useMemo,useState}from'react'
-import{createRoot}from'react-dom/client'
-import{clock,freshSave,loadSave,makeCustomer,priceFor,products,recipesFor,saveGame,workers,type Customer,type MaterialId,type ProductId,type Save,type WorkerId}from'./game'
-import'./style.css'
-const mats:Record<MaterialId,string>={iron:'◆',leather:'▱',herbs:'☘',wood:'▰'}
-const help=["Queue work before opening, or open now and craft while customers browse.","Customers enter throughout the day. Click the person at the counter to trade.","Match their request, suggest something they like, haggle, or ask them to wait for crafting.","Workers gain experience from every item and learn a second recipe at level 2.","At closing, wages and common-material deliveries are paid before the next day."]
-function App(){
- const[g,setG]=useState<Save>(loadSave),[selected,setSelected]=useState<ProductId|null>(null),[worker,setWorker]=useState<WorkerId|null>('blacksmith'),[note,setNote]=useState('Morning light fills the Wandering Anvil.'),[resetArmed,setResetArmed]=useState(false)
- const active=g.customers[0]||null
- const update=(fn:(s:Save)=>Save)=>setG(old=>fn(structuredClone(old)))
- useEffect(()=>saveGame(g),[g])
- useEffect(()=>{if(g.phase!=='open'||g.paused)return;const timer=setInterval(()=>update(s=>tick(s)),1400);return()=>clearInterval(timer)},[g.phase,g.paused])
- function tick(s:Save){s.minutes+=15
-  for(const id of s.hired){const ws=s.workerState[id];if(!ws.active&&ws.queue.length)ws.active={product:ws.queue.shift()!,progress:0};if(ws.active){ws.active.progress++;const r=products[ws.active.product];if(ws.active.progress>=r.ticks){s.inventory[ws.active.product]++;ws.xp++;setNote(`${workers[id].name} finishes ${r.name}.`);delete ws.active;if(ws.xp>=3&&ws.level===1){ws.level=2;setNote(`${workers[id].name} reached level 2 and learned a new recipe!`)}}}}
-  s.customers.forEach(c=>c.patience--);const gone=s.customers.filter(c=>c.patience<=0);if(gone.length){s.reputation=Math.max(-2,s.reputation-gone.length);setNote(`${gone[0].name} leaves after waiting too long.`)}s.customers=s.customers.filter(c=>c.patience>0)
-  if(s.minutes%30===0&&s.customers.length<3&&s.minutes<18*60){s.customers.push(makeCustomer(s.nextCustomer-1,s.nextCustomer++));setNote('The doorbell jingles. A visitor enters.')}
-  if(s.minutes>=18*60){s.minutes=18*60;s.phase='results';s.paused=false;closeAccounts(s)}return s}
- function closeAccounts(s:Save){const wages=s.hired.reduce((n,w)=>n+workers[w].wage,0),capacity=8+s.storageLevel*4;let delivery=0;(Object.keys(s.materials)as MaterialId[]).forEach(m=>{const qty=Math.max(0,capacity-s.materials[m]);s.materials[m]+=qty;delivery+=qty*3});s.coins-=wages+delivery;s.expenses+=wages+delivery;setNote(`Doors closed. ${wages}g wages and ${delivery}g deliveries paid.`)}
- const hire=(id:WorkerId)=>update(s=>{if(s.hired.includes(id)||s.coins<35)return s;s.coins-=35;s.expenses+=35;s.hired.push(id);setNote(`${workers[id].name} joins the workshop.`);return s})
- const queue=(p:ProductId)=>update(s=>{const r=products[p],ws=s.workerState[r.worker];if(s.materials[r.material]<r.cost){setNote(`Not enough ${r.material}.`);return s}if(ws.queue.length>=3){setNote('That workbench queue is full.');return s}s.materials[r.material]-=r.cost;ws.queue.push(p);setNote(`${r.name} added to ${workers[r.worker].name}'s queue.`);return s})
- const open=()=>update(s=>{s.phase='open';s.tutorial=1;s.customers.push(makeCustomer(0,s.nextCustomer++));setNote('The sign turns to OPEN. Crafting and trade now run together.');return s})
- const serve=(action:'sell'|'haggle'|'suggest'|'wait'|'refuse'|'buy')=>update(s=>{const c=s.customers[0];if(!c)return s
-  if(c.kind==='supplier'){if(action==='buy'&&c.material&&c.amount&&c.cost){if(s.coins<c.cost){setNote('You cannot afford the trader’s bundle.');return s}s.coins-=c.cost;s.expenses+=c.cost;s.materials[c.material]+=c.amount;setNote(`Bought ${c.amount} ${c.material} for ${c.cost}g.`)}else setNote(`${c.name} takes the bundle elsewhere.`);s.customers.shift();s.served++;return s}
-  if(action==='wait'){c.patience=Math.min(c.maxPatience+2,c.patience+3);s.customers.push(s.customers.shift()!);setNote(`${c.name} browses while your workers continue crafting.`);return s}
-  if(action==='refuse'){s.customers.shift();s.served++;setNote(`${c.name} leaves without a purchase.`);return s}
-  if(!selected||!s.inventory[selected]){setNote('Choose an item currently in stock.');return s}
-  const r=products[selected],match=c.request===r.category,liked=c.likes.includes(r.category);if(action==='suggest'&&!liked){s.reputation--;s.customers.shift();s.served++;setNote(`${c.name} dislikes the suggestion and leaves.`);setSelected(null);return s}
-  const base=priceFor(c,selected,s.reputation),success=action!=='haggle'||Math.random()<(match?.82:liked?.56:.18);if(success){const price=action==='haggle'?Math.round(base*1.18):base;s.inventory[selected]--;s.coins+=price;s.revenue+=price;s.sales++;s.reputation=Math.min(5,s.reputation+(match?1:0));setNote(`${c.name} buys ${r.name} for ${price}g.`)}else{setNote(`${c.name} rejects the haggle and leaves.`);s.reputation--}s.customers.shift();s.served++;setSelected(null);return s})
- const nextDay=()=>update(s=>{s.day++;s.phase='prep';s.minutes=8*60;s.customers=[];s.served=0;s.sales=0;s.revenue=0;s.expenses=0;s.paused=false;setNote(`Day ${s.day}. Fresh ledgers, familiar ambitions.`);return s})
- const reset=()=>{if(!resetArmed){setResetArmed(true);return}localStorage.removeItem('magic-and-steel-save');setG(freshSave());setResetArmed(false);setSelected(null);setNote('A clean ledger begins.')}
- const totalStock=Object.values(g.inventory).reduce((a,b)=>a+b,0),offer=active&&selected&&active.kind==='buyer'?priceFor(active,selected,g.reputation):0
- return <div className="game-shell"><header><div className="brand"><span>⚔</span><div><h1>MAGIC <i>&</i> STEEL</h1><p>The Wandering Anvil</p></div></div><div className="clock"><b>DAY {g.day} · {clock(g.minutes)}</b><small>{g.phase==='prep'?'MORNING PREPARATION':g.phase==='open'?(g.paused?'SHOP PAUSED':'SHOP OPEN'):'ACCOUNTS'}</small></div><div className="wealth"><b>● {g.coins}g</b><small>Reputation {g.reputation>=0?'+':''}{g.reputation}</small></div></header>
- <main><section className="scene"><div className="sign">✦ THE WANDERING ANVIL ✦</div><div className="room"><div className="window">☾</div><div className="wall-shelf">🧪　📜　🕯️</div><div className="workshops">{(Object.keys(workers)as WorkerId[]).map((id,i)=>{const w=workers[id],h=g.hired.includes(id),ws=g.workerState[id],job=ws.active&&products[ws.active.product];return <button className={`workbench w${i} ${h?'':'locked'} ${worker===id?'chosen':''}`} key={id} onClick={()=>h?setWorker(id):hire(id)}><div className="sprite" style={{'--coat':w.color}as React.CSSProperties}><i>●</i><span>{h?w.icon:'?'}</span></div><b>{w.name}</b><small>{h?`Lv ${ws.level} · XP ${ws.xp}/3`:`Hire 35g · wage ${w.wage}g`}</small>{job?<><em>{job.icon} {job.name}</em><div className="progress"><i style={{width:`${ws.active!.progress/job.ticks*100}%`}}/></div></>:h&&<em>{ws.queue.length?`${ws.queue.length} queued`:'Workbench ready'}</em>}</button>})}</div><div className="display-rack">{g.display.map(p=><span key={p}>{products[p].icon}<small>{g.inventory[p]}</small></span>)}</div><div className="counter"><span className="you">🧑‍🌾<small>YOU</small></span></div><div className="queue">{g.customers.slice(0,3).map((c,i)=><button key={c.id} className={`visitor q${i}`} onClick={()=>i===0&&setNote(`${c.name} is ready to trade.`)}><span>{c.icon}</span><b>{c.name}</b><i style={{width:`${c.patience/c.maxPatience*100}%`}}/></button>)}</div><div className="door">{g.phase==='open'?'OPEN':'CLOSED'}</div></div><div className="notice">❧ {note}</div></section>
- <aside className="ledger"><div className="ledger-head"><b>SHOP LEDGER</b><button onClick={reset}>{resetArmed?'CONFIRM RESET':'RESET SAVE'}</button></div><section><h2>Common materials <small>capacity {8+g.storageLevel*4}</small></h2><div className="materials">{(Object.keys(g.materials)as MaterialId[]).map(m=><div key={m}><span>{mats[m]}</span><b>{g.materials[m]}</b><small>{m}</small></div>)}</div></section>
- {worker&&g.hired.includes(worker)&&<section><h2>{workers[worker].name} recipes <small>queue {g.workerState[worker].queue.length}/3</small></h2><div className="recipes">{recipesFor(worker,g.workerState[worker].level).map(p=>{const r=products[p];return <button key={p} onClick={()=>queue(p)}><span>{r.icon}</span><b>{r.name}</b><small>{r.cost} {r.material} · {r.ticks} ticks</small></button>})}{g.workerState[worker].level<2&&<div className="locked-recipe">🔒 New recipe at level 2</div>}</div></section>}
- <section><h2>Stock room <small>{totalStock} items</small></h2><div className="stock">{(Object.keys(products)as ProductId[]).filter(p=>g.inventory[p]>0).map(p=><button className={selected===p?'selected':''} key={p} onClick={()=>setSelected(p)}><span>{products[p].icon}</span><b>{products[p].name}</b><em>x{g.inventory[p]}</em><small>{products[p].category}</small></button>)}{!totalStock&&<p className="empty">Craft goods to fill your shelves.</p>}</div></section>
- {g.phase==='prep'&&<button className="primary" onClick={open}>TURN SIGN TO OPEN</button>}
- {g.phase==='open'&&<><div className="open-controls"><button onClick={()=>update(s=>{s.paused=!s.paused;return s})}>{g.paused?'▶ RESUME':'Ⅱ PAUSE'}</button><span>Visitors {g.customers.length}/3</span></div>{active?<section className="trade"><h2>{active.icon} {active.name}</h2><p className="role">{active.role} · patience {active.patience}</p>{active.kind==='supplier'?<><p>“Four measures of <b>{active.material}</b>, yours for {active.cost}g.”</p><div className="trade-actions"><button onClick={()=>serve('buy')}>BUY BUNDLE</button><button onClick={()=>serve('refuse')}>DECLINE</button></div></>:<><p>“I’m looking for <b>{active.request}</b>. What do you have?”</p><div className="likes">Also likes: {active.likes.join(' · ')}</div>{selected&&<div className="quoted">{products[selected].icon} {products[selected].name} · offer {offer}g</div>}<div className="trade-actions"><button disabled={!selected} onClick={()=>serve('sell')}>ACCEPT OFFER</button><button disabled={!selected} onClick={()=>serve('haggle')}>HAGGLE +18%</button><button disabled={!selected} onClick={()=>serve('suggest')}>SUGGEST ITEM</button><button onClick={()=>serve('wait')}>ASK TO WAIT</button><button onClick={()=>serve('refuse')}>REFUSE</button></div></>}</section>:<p className="empty">The counter is clear. Keep crafting.</p>}</>}
- {g.phase==='results'&&<section className="results"><h2>Day {g.day} accounts</h2><div><span>Visitors served</span><b>{g.served}</b></div><div><span>Items sold</span><b>{g.sales}</b></div><div><span>Sales</span><b>+{g.revenue}g</b></div><div><span>Wages & supplies</span><b>-{g.expenses}g</b></div><button className="upgrade" onClick={()=>update(s=>{if(s.coins>=65){s.coins-=65;s.expenses+=65;s.storageLevel++;setNote('The stockroom is expanded by four spaces.')}return s})}>EXPAND STOCKROOM · 65g<small>+4 material capacity</small></button><button className="primary" onClick={nextDay}>BEGIN DAY {g.day+1}</button></section>}</aside></main>
- <footer><div><b>SHOPKEEPER'S NOTE</b><p>{help[Math.min(g.tutorial,help.length-1)]}</p></div><span>✓ Saved on this device</span></footer></div>
+import React, { useEffect, useState } from 'react'
+import { createRoot } from 'react-dom/client'
+import {
+  clock, freshSave, loadSave, makeCustomer, priceFor, products, recipesFor,
+  saveGame, workers, type MaterialId, type ProductId, type Save, type WorkerId,
+} from './game'
+import './style.css'
+
+const materialIcons: Record<MaterialId, string> = { iron: '◆', leather: '▱', herbs: '☘', wood: '▬' }
+const workerIds = Object.keys(workers) as WorkerId[]
+const productIds = Object.keys(products) as ProductId[]
+const benchNames: Record<WorkerId, string> = {
+  blacksmith: 'Forge', leatherworker: 'Stitching Table', alchemist: 'Brewing Table', carpenter: 'Woodworking Bench',
 }
-createRoot(document.getElementById('root')!).render(<App/>)
+const slotPositions = [
+  [18, 25], [39, 19], [67, 23], [82, 40], [21, 58], [39, 70], [65, 68], [82, 59],
+]
+const help = [
+  'In preparation, select a hired workbench and click a glowing floor space to place it.',
+  'Only workers whose benches are placed can craft. Click a placed bench to choose its recipes.',
+  'Open the shop when ready. Customers enter and walk to your counter.',
+  'Choose stock, then accept, haggle, suggest an alternative, or ask the customer to wait.',
+]
+
+function App() {
+  const [g, setG] = useState<Save>(loadSave)
+  const [selected, setSelected] = useState<ProductId | null>(null)
+  const [worker, setWorker] = useState<WorkerId | null>('blacksmith')
+  const [placing, setPlacing] = useState<WorkerId | null>(null)
+  const [note, setNote] = useState('Morning light fills the Wandering Anvil.')
+  const [resetArmed, setResetArmed] = useState(false)
+  const active = g.customers[0] || null
+  const update = (fn: (s: Save) => Save) => setG(old => fn(structuredClone(old)))
+
+  useEffect(() => saveGame(g), [g])
+  useEffect(() => {
+    if (g.phase !== 'open' || g.paused) return
+    const timer = setInterval(() => update(tick), 1400)
+    return () => clearInterval(timer)
+  }, [g.phase, g.paused])
+
+  function tick(s: Save) {
+    s.minutes += 15
+    for (const id of s.hired) {
+      if (s.placedBenches[id] === null) continue
+      const ws = s.workerState[id]
+      if (!ws.active && ws.queue.length) ws.active = { product: ws.queue.shift()!, progress: 0 }
+      if (ws.active) {
+        ws.active.progress++
+        const recipe = products[ws.active.product]
+        if (ws.active.progress >= recipe.ticks) {
+          s.inventory[ws.active.product]++
+          ws.xp++
+          setNote(`${workers[id].name} finishes ${recipe.name}.`)
+          delete ws.active
+          if (ws.xp >= 3 && ws.level === 1) { ws.level = 2; setNote(`${workers[id].name} reached level 2!`) }
+        }
+      }
+    }
+    s.customers.forEach(c => c.patience--)
+    const gone = s.customers.filter(c => c.patience <= 0)
+    if (gone.length) { s.reputation = Math.max(-2, s.reputation - gone.length); setNote(`${gone[0].name} leaves after waiting.`) }
+    s.customers = s.customers.filter(c => c.patience > 0)
+    if (s.minutes % 30 === 0 && s.customers.length < 3 && s.minutes < 18 * 60) {
+      s.customers.push(makeCustomer(s.nextCustomer - 1, s.nextCustomer++)); setNote('The doorbell jingles.')
+    }
+    if (s.minutes >= 18 * 60) { s.minutes = 18 * 60; s.phase = 'results'; s.paused = false; closeAccounts(s) }
+    return s
+  }
+
+  function closeAccounts(s: Save) {
+    const wages = s.hired.reduce((sum, id) => sum + workers[id].wage, 0)
+    const capacity = 8 + s.storageLevel * 4
+    let delivery = 0
+    ;(Object.keys(s.materials) as MaterialId[]).forEach(m => {
+      const qty = Math.max(0, capacity - s.materials[m]); s.materials[m] += qty; delivery += qty * 3
+    })
+    s.coins -= wages + delivery; s.expenses += wages + delivery
+    setNote(`Doors closed. ${wages}g wages and ${delivery}g deliveries paid.`)
+  }
+
+  const hire = (id: WorkerId) => update(s => {
+    if (s.hired.includes(id) || s.coins < 35) return s
+    s.coins -= 35; s.expenses += 35; s.hired.push(id); setPlacing(id)
+    setNote(`${workers[id].name} is hired. Place the ${benchNames[id]} on a glowing floor space.`)
+    return s
+  })
+  const placeBench = (slot: number) => {
+    if (!placing || g.phase !== 'prep') return
+    update(s => {
+      for (const id of workerIds) if (s.placedBenches[id] === slot) s.placedBenches[id] = null
+      s.placedBenches[placing] = slot
+      setWorker(placing); setNote(`${benchNames[placing]} placed. ${workers[placing].name} is now in the shop.`)
+      return s
+    })
+    setPlacing(null)
+  }
+  const removeBench = (id: WorkerId) => update(s => {
+    if (s.phase !== 'prep') return s
+    s.placedBenches[id] = null; setPlacing(id); setWorker(null)
+    setNote(`${benchNames[id]} picked up. Choose a new floor space.`)
+    return s
+  })
+  const queue = (p: ProductId) => update(s => {
+    const r = products[p], ws = s.workerState[r.worker]
+    if (s.placedBenches[r.worker] === null) { setNote(`Place the ${benchNames[r.worker]} first.`); return s }
+    if (s.materials[r.material] < r.cost) { setNote(`Not enough ${r.material}.`); return s }
+    if (ws.queue.length >= 3) { setNote('That workbench queue is full.'); return s }
+    s.materials[r.material] -= r.cost; ws.queue.push(p); setNote(`${r.name} added to the queue.`); return s
+  })
+  const open = () => update(s => {
+    if (!workerIds.some(id => s.placedBenches[id] !== null)) { setNote('Place at least one workbench before opening.'); return s }
+    s.phase = 'open'; s.tutorial = 2; s.customers.push(makeCustomer(0, s.nextCustomer++)); setPlacing(null)
+    setNote('The sign turns to OPEN.'); return s
+  })
+  const serve = (action: 'sell' | 'haggle' | 'suggest' | 'wait' | 'refuse' | 'buy') => update(s => {
+    const c = s.customers[0]; if (!c) return s
+    if (c.kind === 'supplier') {
+      if (action === 'buy' && c.material && c.amount && c.cost) {
+        if (s.coins < c.cost) { setNote('You cannot afford the bundle.'); return s }
+        s.coins -= c.cost; s.expenses += c.cost; s.materials[c.material] += c.amount; setNote(`Bought ${c.amount} ${c.material}.`)
+      } else setNote(`${c.name} takes the bundle elsewhere.`)
+      s.customers.shift(); s.served++; return s
+    }
+    if (action === 'wait') { c.patience = Math.min(c.maxPatience + 2, c.patience + 3); s.customers.push(s.customers.shift()!); setNote(`${c.name} browses.`); return s }
+    if (action === 'refuse') { s.customers.shift(); s.served++; setNote(`${c.name} leaves.`); return s }
+    if (!selected || !s.inventory[selected]) { setNote('Choose an item in stock.'); return s }
+    const r = products[selected], match = c.request === r.category, liked = c.likes.includes(r.category)
+    if (action === 'suggest' && !liked) { s.reputation--; s.customers.shift(); s.served++; setNote(`${c.name} dislikes the suggestion.`); return s }
+    const base = priceFor(c, selected, s.reputation), success = action !== 'haggle' || Math.random() < (match ? .82 : liked ? .56 : .18)
+    if (success) { const price = action === 'haggle' ? Math.round(base * 1.18) : base; s.inventory[selected]--; s.coins += price; s.revenue += price; s.sales++; setNote(`${c.name} buys ${r.name} for ${price}g.`) }
+    else { s.reputation--; setNote(`${c.name} rejects the haggle.`) }
+    s.customers.shift(); s.served++; setSelected(null); return s
+  })
+  const nextDay = () => update(s => { s.day++; s.phase = 'prep'; s.minutes = 480; s.customers = []; s.served = 0; s.sales = 0; s.revenue = 0; s.expenses = 0; setNote(`Day ${s.day}. Arrange the shop before opening.`); return s })
+  const reset = () => { if (!resetArmed) return setResetArmed(true); localStorage.removeItem('magic-and-steel-save'); setG(freshSave()); setResetArmed(false); setPlacing(null) }
+
+  const totalStock = Object.values(g.inventory).reduce((a, b) => a + b, 0)
+  const offer = active && selected && active.kind === 'buyer' ? priceFor(active, selected, g.reputation) : 0
+
+  return <div className="game-shell">
+    <header><div className="brand"><span>⚔</span><div><h1>MAGIC <i>&</i> STEEL</h1><p>The Wandering Anvil</p></div></div><div className="clock"><b>DAY {g.day} · {clock(g.minutes)}</b><small>{g.phase === 'prep' ? 'MORNING PREPARATION' : g.phase === 'open' ? (g.paused ? 'SHOP PAUSED' : 'SHOP OPEN') : 'ACCOUNTS'}</small></div><div className="wealth"><b>● {g.coins}g</b><small>Reputation {g.reputation >= 0 ? '+' : ''}{g.reputation}</small></div></header>
+    <main><section className={`scene ${placing ? 'placement-mode' : ''}`}><div className="sign">✦ THE WANDERING ANVIL ✦</div><div className="room">
+      <div className="window">☾</div><div className="wall-shelf">⚗　▤　♟</div>
+      {g.phase === 'prep' && slotPositions.map(([x, y], slot) => <button key={slot} className={`bench-slot ${Object.values(g.placedBenches).includes(slot) ? 'occupied' : ''}`} style={{ left: `${x}%`, top: `${y}%` }} onClick={() => placeBench(slot)} aria-label={`Floor space ${slot + 1}`}><span>+</span></button>)}
+      <div className="workshops">{workerIds.map(id => {
+        const slot = g.placedBenches[id]; if (slot === null) return null
+        const w = workers[id], ws = g.workerState[id], job = ws.active && products[ws.active.product], [x, y] = slotPositions[slot]
+        return <button className={`workbench placed ${worker === id ? 'chosen' : ''}`} style={{ left: `${x}%`, top: `${y}%` }} key={id} onClick={() => setWorker(id)}><div className="bench-object">{w.icon}</div><div className="sprite" style={{ '--coat': w.color } as React.CSSProperties}><i/><span>●</span></div><b>{w.name}</b><small>{benchNames[id]} · Lv {ws.level}</small>{job ? <><em>{job.icon} {job.name}</em><div className="progress"><i style={{ width: `${ws.active!.progress / job.ticks * 100}%` }}/></div></> : <em>{ws.queue.length ? `${ws.queue.length} queued` : 'Ready'}</em>}</button>
+      })}</div>
+      <div className="display-rack">{g.display.map(p => <span key={p}>{products[p].icon}<small>{g.inventory[p]}</small></span>)}</div><div className="counter"><span className="you">🧑<small>YOU</small></span></div>
+      <div className="queue">{g.customers.slice(0, 3).map((c, i) => <button key={c.id} className={`visitor q${i}`}><span>{c.icon}</span><b>{c.name}</b><i style={{ width: `${c.patience / c.maxPatience * 100}%` }}/></button>)}</div><div className="door">{g.phase === 'open' ? 'OPEN' : 'CLOSED'}</div>
+    </div><div className="notice">❧ {placing ? `Placing ${benchNames[placing]} — choose a glowing floor space.` : note}</div></section>
+    <aside className="ledger"><div className="ledger-head"><b>SHOP LEDGER</b><button onClick={reset}>{resetArmed ? 'CONFIRM RESET' : 'RESET SAVE'}</button></div>
+      <section><h2>Common materials <small>capacity {8 + g.storageLevel * 4}</small></h2><div className="materials">{(Object.keys(g.materials) as MaterialId[]).map(m => <div key={m}><span>{materialIcons[m]}</span><b>{g.materials[m]}</b><small>{m}</small></div>)}</div></section>
+      <section><h2>Workshop furniture <small>{g.phase === 'prep' ? 'tap to place or move' : 'locked while open'}</small></h2><div className="bench-palette">{workerIds.map(id => { const hired = g.hired.includes(id), placed = g.placedBenches[id] !== null; return <button key={id} className={placing === id ? 'placing' : ''} disabled={g.phase !== 'prep'} onClick={() => hired ? (placed ? removeBench(id) : setPlacing(id)) : hire(id)}><span>{workers[id].icon}</span><b>{benchNames[id]}</b><small>{hired ? (placed ? 'Placed · tap to move' : 'Place in shop') : `Hire ${workers[id].name} · 35g`}</small></button> })}</div></section>
+      {worker && g.placedBenches[worker] !== null && <section><h2>{workers[worker].name} recipes <small>queue {g.workerState[worker].queue.length}/3</small></h2><div className="recipes">{recipesFor(worker, g.workerState[worker].level).map(p => { const r = products[p]; return <button key={p} onClick={() => queue(p)}><span>{r.icon}</span><b>{r.name}</b><small>{r.cost} {r.material} · {r.ticks} ticks</small></button> })}</div></section>}
+      <section><h2>Stock room <small>{totalStock} items</small></h2><div className="stock">{productIds.filter(p => g.inventory[p] > 0).map(p => <button className={selected === p ? 'selected' : ''} key={p} onClick={() => setSelected(p)}><span>{products[p].icon}</span><b>{products[p].name}</b><em>x{g.inventory[p]}</em><small>{products[p].category}</small></button>)}{!totalStock && <p className="empty">Craft goods to fill your shelves.</p>}</div></section>
+      {g.phase === 'prep' && <button className="primary" onClick={open}>TURN SIGN TO OPEN</button>}
+      {g.phase === 'open' && <><div className="open-controls"><button onClick={() => update(s => { s.paused = !s.paused; return s })}>{g.paused ? '▶ RESUME' : 'Ⅱ PAUSE'}</button><span>Visitors {g.customers.length}/3</span></div>{active ? <section className="trade"><h2>{active.icon} {active.name}</h2><p>{active.kind === 'supplier' ? `A bundle of ${active.material} for ${active.cost}g.` : `“I'm looking for ${active.request}. What do you have?”`}</p>{selected && <div className="quoted">{products[selected].icon} {products[selected].name} · {offer}g</div>}<div className="trade-actions">{active.kind === 'supplier' ? <><button onClick={() => serve('buy')}>BUY</button><button onClick={() => serve('refuse')}>DECLINE</button></> : <><button disabled={!selected} onClick={() => serve('sell')}>ACCEPT OFFER</button><button disabled={!selected} onClick={() => serve('haggle')}>HAGGLE +18%</button><button disabled={!selected} onClick={() => serve('suggest')}>SUGGEST ITEM</button><button onClick={() => serve('wait')}>ASK TO WAIT</button><button onClick={() => serve('refuse')}>REFUSE</button></>}</div></section> : <p className="empty">The counter is clear.</p>}</>}
+      {g.phase === 'results' && <section className="results"><h2>Day {g.day} accounts</h2><div><span>Items sold</span><b>{g.sales}</b></div><div><span>Sales</span><b>+{g.revenue}g</b></div><div><span>Expenses</span><b>-{g.expenses}g</b></div><button className="upgrade" onClick={() => update(s => { if (s.coins >= 65) { s.coins -= 65; s.storageLevel++; setNote('Stockroom expanded.') } return s })}>EXPAND STOCKROOM · 65g<small>+4 material capacity</small></button><button className="primary" onClick={nextDay}>BEGIN DAY {g.day + 1}</button></section>}
+    </aside></main>
+    <footer><div><b>SHOPKEEPER'S NOTE</b><p>{help[Math.min(g.tutorial, help.length - 1)]}</p></div><span>✓ Saved on this device</span></footer>
+  </div>
+}
+
+createRoot(document.getElementById('root')!).render(<App />)

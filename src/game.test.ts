@@ -1,3 +1,34 @@
-import{describe,it,expect,beforeEach}from'vitest'
-import{freshSave,loadSave,saveGame,makeCustomer,priceFor,recipesFor}from'./game'
-describe('continuous shop simulation',()=>{beforeEach(()=>localStorage.clear());it('creates a viable persistent shop',()=>{const s=freshSave();expect(s.hired).toHaveLength(2);saveGame(s);expect(loadSave().version).toBe(2)});it('rewards matching customer requests',()=>{const c=makeCustomer(0,1);expect(priceFor(c,'shortsword')).toBeGreaterThan(priceFor(c,'leatherShirt'))});it('unlocks recipes through worker levels',()=>{expect(recipesFor('blacksmith',1)).toEqual(['shortsword']);expect(recipesFor('blacksmith',2)).toContain('handaxe')})})
+import { beforeEach, describe, expect, it } from 'vitest'
+import { freshSave, loadSave, makeCustomer, priceFor, recipesFor, saveGame } from './game'
+
+describe('continuous shop simulation', () => {
+  beforeEach(() => localStorage.clear())
+
+  it('creates a viable persistent shop with placeable workbenches', () => {
+    const save = freshSave()
+    expect(save.hired).toHaveLength(2)
+    expect(save.placedBenches.blacksmith).toBe(0)
+    expect(save.placedBenches.alchemist).toBe(5)
+    saveGame(save)
+    expect(loadSave().version).toBe(3)
+  })
+
+  it('migrates existing saves to placed workbenches', () => {
+    const oldSave = { ...freshSave(), version: 2 }
+    delete (oldSave as Partial<typeof oldSave>).placedBenches
+    localStorage.setItem('magic-and-steel-save', JSON.stringify(oldSave))
+    const migrated = loadSave()
+    expect(migrated.version).toBe(3)
+    expect(migrated.placedBenches.blacksmith).not.toBeNull()
+  })
+
+  it('rewards matching customer requests', () => {
+    const customer = makeCustomer(0, 1)
+    expect(priceFor(customer, 'shortsword')).toBeGreaterThan(priceFor(customer, 'leatherShirt'))
+  })
+
+  it('unlocks recipes through worker levels', () => {
+    expect(recipesFor('blacksmith', 1)).toEqual(['shortsword'])
+    expect(recipesFor('blacksmith', 2)).toContain('handaxe')
+  })
+})
