@@ -66,10 +66,10 @@
 
 /* Shared responsive shop geometry: these corners match the generated grid
    coordinates, so fullscreen and narrow layouts use the same diamond. */
-.room:before{left:16.8%;right:16.8%;top:25%;height:44%;transform:none;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);border:0;box-shadow:none;background-size:auto,300px 300px}
-.room:after{inset:0;width:100%;height:100%;clip-path:polygon(50% 3%,83.2% 25%,83.2% 47%,50% 25%,16.8% 47%,16.8% 25%);filter:drop-shadow(0 6px 0 #4a3425);background-image:linear-gradient(90deg,transparent 0 49.2%,#72553a 49.2% 50.2%,transparent 50.2%),repeating-linear-gradient(0deg,#d1b77d 0 27px,#b49562 28px 30px)}
+.room:before{left:8.5%;right:8.5%;top:19.5%;height:55%;transform:none;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);border:0;box-shadow:none;background-size:auto,300px 300px}
+.room:after{inset:0;width:100%;height:100%;clip-path:polygon(50% 3%,91.5% 25%,91.5% 47%,50% 19.5%,8.5% 47%,8.5% 25%);filter:drop-shadow(0 6px 0 #4a3425);background-image:linear-gradient(90deg,transparent 0 49.2%,#72553a 49.2% 50.2%,transparent 50.2%),repeating-linear-gradient(0deg,#d1b77d 0 27px,#b49562 28px 30px)}
 .bench-slot{width:16.6%;height:11%}
-@media(max-width:620px){.room:before{left:16.8%;right:16.8%;top:25%;height:44%}.room:after{inset:0;width:100%;height:100%}.bench-slot{width:16.6%;height:11%}}
+@media(max-width:620px){.room:before{left:8.5%;right:8.5%;top:19.5%;height:55%}.room:after{inset:0;width:100%;height:100%}.bench-slot{width:16.6%;height:11%}}
 
 /* Illustrated customers roam between free floor tiles, then step up to the
    movable sales counter when their request becomes active. */
