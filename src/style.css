@@ -69,3 +69,16 @@
 .room:before{left:12%;right:12%;top:20%;height:54%;transform:none;clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);border:0;box-shadow:none;background-size:auto,300px 300px}
 .room:after{inset:0;width:100%;height:100%;clip-path:polygon(50% 3%,88% 25%,88% 47%,50% 20%,12% 47%,12% 25%);filter:drop-shadow(0 6px 0 #4a3425);background-image:linear-gradient(90deg,transparent 0 49.2%,#72553a 49.2% 50.2%,transparent 50.2%),repeating-linear-gradient(0deg,#d1b77d 0 27px,#b49562 28px 30px)}
 @media(max-width:620px){.room:before{left:12%;right:12%;top:20%;height:54%}.room:after{inset:0;width:100%;height:100%}}
+
+/* Illustrated customers roam between free floor tiles, then step up to the
+   movable sales counter when their request becomes active. */
+.roaming-customers{position:absolute;inset:0;z-index:10;pointer-events:none}
+.roaming-customer{position:absolute;width:62px;height:86px;padding:0;border:0;background:transparent;transform:translate(-50%,-78%);transition:left .9s cubic-bezier(.34,.8,.3,1),top .9s cubic-bezier(.34,.8,.3,1),filter .2s;pointer-events:auto;filter:drop-shadow(3px 4px #21171180)}
+.roaming-customer>img{display:block;width:100%;height:76px;object-fit:contain;object-position:center bottom;image-rendering:pixelated;user-select:none;transform-origin:bottom center}
+.roaming-customer.walking>img{animation:customerWalk .44s ease-in-out infinite alternate}.roaming-customer.standing>img{animation:none}
+.roaming-customer>b,.roaming-customer>small{position:absolute;left:50%;transform:translateX(-50%);display:block;min-width:54px;white-space:nowrap;text-align:center;border:1px solid #4c3023;color:#432b22}
+.roaming-customer>b{bottom:-2px;padding:1px 3px;background:#f3dfb5;font:7px MedievalSharp}.roaming-customer>small{display:none;bottom:-13px;padding:1px 3px;background:#dfc18d;font-size:6px}.roaming-customer:hover{z-index:20;filter:drop-shadow(0 0 5px #ffe99a) drop-shadow(3px 4px #21171180)}.roaming-customer:hover>small,.roaming-customer:focus-visible>small{display:block}
+.roaming-customer>i{position:absolute;left:8px;bottom:-7px;height:3px;max-width:46px;background:#68a36f}.roaming-customer.requesting{z-index:15}.roaming-customer.browsing{z-index:11;transform:translate(-50%,-78%) scale(.9)}
+.request-bubble{position:absolute;right:-2px;top:3px;display:grid;place-items:center;min-width:22px;height:22px;padding:2px;border:2px solid #4a3022;border-radius:50%;background:#fff2c8;color:#654127;font:12px MedievalSharp;box-shadow:2px 3px #39251d;animation:requestBob .7s ease-in-out infinite alternate}
+@keyframes customerWalk{to{transform:translateY(-2px) rotate(1deg)}}@keyframes requestBob{to{transform:translateY(-4px)}}
+@media(max-width:620px){.roaming-customer{width:52px;height:74px}.roaming-customer>img{height:65px}.roaming-customer>b{font-size:6px}.request-bubble{right:-4px;transform:scale(.85)}}

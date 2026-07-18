@@ -36,6 +36,21 @@ function App() {
   const [resetArmed, setResetArmed] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const active = g.customers[0] || null
+  const occupiedSlots = new Set<number>([...Object.values(g.placedBenches).filter((slot): slot is number => slot !== null), ...(g.shopkeeperSlot === null ? [] : [g.shopkeeperSlot])])
+  const browseSlots = slotPositions.map((_, slot) => slot).filter(slot => {
+    if (occupiedSlots.has(slot)) return false
+    const row = Math.floor(slot / gridColumns), column = slot % gridColumns
+    return [...occupiedSlots].every(occupied => Math.abs(row - Math.floor(occupied / gridColumns)) + Math.abs(column - occupied % gridColumns) > 1)
+  })
+  const customerPosition = (customerId: number, queueIndex: number) => {
+    if (queueIndex === 0 && g.shopkeeperSlot !== null) {
+      const [x, y] = slotPositions[g.shopkeeperSlot]
+      return [Math.max(8, x - 7), Math.min(73, y + 4.8)] as const
+    }
+    const choices = browseSlots.length ? browseSlots : slotPositions.map((_, slot) => slot)
+    const roamStep = Math.floor(g.minutes / 30)
+    return slotPositions[choices[(customerId * 3 + queueIndex * 5 + roamStep) % choices.length]]
+  }
   const update = (fn: (s: Save) => Save) => setG(old => fn(structuredClone(old)))
 
   useEffect(() => saveGame(g), [g])
@@ -169,7 +184,7 @@ function App() {
         </div>
       })}</div>
       {g.shopkeeperSlot !== null && (() => { const [x, y] = slotPositions[g.shopkeeperSlot]; return <div className="shopkeeper-station" style={{ left: `${x}%`, top: `${y}%` }}><div className="shop-counter"><span>▤</span></div><img src={`${import.meta.env.BASE_URL}assets/shop/shopkeeper.png`} alt="Shopkeeper" draggable="false"/><small>SHOPKEEPER</small></div> })()}
-      <div className="queue">{g.customers.slice(0, 3).map((c, i) => <button key={c.id} className={`visitor q${i}`}><span>{c.icon}</span><b>{c.name}</b><i style={{ width: `${c.patience / c.maxPatience * 100}%` }}/></button>)}</div>
+      <div className="roaming-customers" aria-label="Customers in the shop">{g.customers.slice(0, 3).map((c, i) => { const [x, y] = customerPosition(c.id, i); return <button key={c.id} className={`roaming-customer ${i === 0 ? 'requesting' : 'browsing'} ${g.paused ? 'standing' : 'walking'}`} style={{ left: `${x}%`, top: `${y}%` }} title={`${c.name}, ${c.role}`} aria-label={`${c.name}, ${c.role}${i === 0 ? ', waiting at the counter' : ', browsing the shop'}`}><img src={`${import.meta.env.BASE_URL}assets/customers/${c.sprite}.png`} alt="" draggable="false"/>{i === 0 && <span className="request-bubble">{c.kind === 'supplier' ? '📦' : '?'}</span>}<b>{c.name}</b><small>{i === 0 ? c.role : 'Browsing'}</small><i style={{ width: `${c.patience / c.maxPatience * 100}%` }}/></button> })}</div>
     </div><div className="notice">❧ {placing ? `Placing ${benchNames[placing]} — choose a glowing floor space.` : note}</div></section>
     <aside className="ledger"><div className="ledger-head"><b>SHOP LEDGER</b><button onClick={reset}>{resetArmed ? 'CONFIRM RESET' : 'RESET SAVE'}</button></div>
       <section><h2>Common materials <small>capacity {8 + g.storageLevel * 4}</small></h2><div className="materials">{(Object.keys(g.materials) as MaterialId[]).map(m => <div key={m}><span>{materialIcons[m]}</span><b>{g.materials[m]}</b><small>{m}</small></div>)}</div></section>
