@@ -9,8 +9,9 @@ describe('continuous shop simulation', () => {
     expect(save.hired).toHaveLength(2)
     expect(save.placedBenches.blacksmith).toBe(6)
     expect(save.placedBenches.alchemist).toBe(23)
+    expect(save.shopkeeperSlot).toBe(16)
     saveGame(save)
-    expect(loadSave().version).toBe(4)
+    expect(loadSave().version).toBe(5)
   })
 
   it('migrates existing saves to placed workbenches', () => {
@@ -18,8 +19,9 @@ describe('continuous shop simulation', () => {
     delete (oldSave as Partial<typeof oldSave>).placedBenches
     localStorage.setItem('magic-and-steel-save', JSON.stringify(oldSave))
     const migrated = loadSave()
-    expect(migrated.version).toBe(4)
+    expect(migrated.version).toBe(5)
     expect(migrated.placedBenches.blacksmith).not.toBeNull()
+    expect(migrated.shopkeeperSlot).not.toBeNull()
   })
 
   it('rewards matching customer requests', () => {

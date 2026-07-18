@@ -9,8 +9,9 @@ import './style.css'
 const materialIcons: Record<MaterialId, string> = { iron: '◆', leather: '▱', herbs: '☘', wood: '▬' }
 const workerIds = Object.keys(workers) as WorkerId[]
 const productIds = Object.keys(products) as ProductId[]
-const benchNames: Record<WorkerId, string> = {
-  blacksmith: 'Forge', leatherworker: 'Stitching Table', alchemist: 'Brewing Table', carpenter: 'Woodworking Bench',
+type PlacementId = WorkerId | 'shopkeeper'
+const benchNames: Record<PlacementId, string> = {
+  blacksmith: 'Forge', leatherworker: 'Stitching Table', alchemist: 'Brewing Table', carpenter: 'Woodworking Bench', shopkeeper: 'Sales Counter',
 }
 const gridColumns = 6
 const gridRows = 5
@@ -30,7 +31,7 @@ function App() {
   const [g, setG] = useState<Save>(loadSave)
   const [selected, setSelected] = useState<ProductId | null>(null)
   const [worker, setWorker] = useState<WorkerId | null>(null)
-  const [placing, setPlacing] = useState<WorkerId | null>(null)
+  const [placing, setPlacing] = useState<PlacementId | null>(null)
   const [note, setNote] = useState('Morning light fills the Wandering Anvil.')
   const [resetArmed, setResetArmed] = useState(false)
   const active = g.customers[0] || null
@@ -93,8 +94,9 @@ function App() {
     if (!placing || g.phase !== 'prep') return
     update(s => {
       for (const id of workerIds) if (s.placedBenches[id] === slot) s.placedBenches[id] = null
-      s.placedBenches[placing] = slot
-      setNote(`${benchNames[placing]} placed. Click ${workers[placing].name} to choose a recipe.`)
+      if (s.shopkeeperSlot === slot) s.shopkeeperSlot = null
+      if (placing === 'shopkeeper') { s.shopkeeperSlot = slot; setNote('Sales Counter placed. The shopkeeper is ready to welcome customers.') }
+      else { s.placedBenches[placing] = slot; setNote(`${benchNames[placing]} placed. Click ${workers[placing].name} to choose a recipe.`) }
       return s
     })
     setPlacing(null)
@@ -105,6 +107,10 @@ function App() {
     setNote(`${benchNames[id]} picked up. Choose a new floor space.`)
     return s
   })
+  const moveCounter = () => update(s => {
+    if (s.phase !== 'prep') return s
+    s.shopkeeperSlot = null; setPlacing('shopkeeper'); setNote('Sales Counter picked up. Choose a new grid space.'); return s
+  })
   const queue = (p: ProductId) => update(s => {
     const r = products[p], ws = s.workerState[r.worker]
     if (s.placedBenches[r.worker] === null) { setNote(`Place the ${benchNames[r.worker]} first.`); return s }
@@ -114,6 +120,7 @@ function App() {
   })
   const open = () => update(s => {
     if (!workerIds.some(id => s.placedBenches[id] !== null)) { setNote('Place at least one workbench before opening.'); return s }
+    if (s.shopkeeperSlot === null) { setNote('Place the Sales Counter before opening the shop.'); return s }
     s.phase = 'open'; s.tutorial = 2; s.customers.push(makeCustomer(0, s.nextCustomer++)); setPlacing(null)
     setNote('The sign turns to OPEN.'); return s
   })
@@ -146,7 +153,7 @@ function App() {
     <header><div className="brand"><span>⚔</span><div><h1>MAGIC <i>&</i> STEEL</h1><p>The Wandering Anvil</p></div></div><div className="clock"><b>DAY {g.day} · {clock(g.minutes)}</b><small>{g.phase === 'prep' ? 'MORNING PREPARATION' : g.phase === 'open' ? (g.paused ? 'SHOP PAUSED' : 'SHOP OPEN') : 'ACCOUNTS'}</small></div><div className="wealth"><b>● {g.coins}g</b><small>Reputation {g.reputation >= 0 ? '+' : ''}{g.reputation}</small></div></header>
     <main><section className={`scene ${placing ? 'placement-mode' : ''}`}><div className="sign">✦ THE WANDERING ANVIL ✦</div><div className="room">
       <div className="window">☾</div><div className="wall-shelf">⚗　▤　♟</div>
-      {g.phase === 'prep' && <div className="floor-grid" aria-label="Shop floor placement grid">{slotPositions.map(([x, y], slot) => { const occupant = workerIds.find(id => g.placedBenches[id] === slot); return <button key={slot} className={`bench-slot ${occupant ? 'occupied' : ''}`} style={{ left: `${x}%`, top: `${y}%` }} onClick={() => placeBench(slot)} aria-label={`Grid row ${Math.floor(slot / gridColumns) + 1}, column ${slot % gridColumns + 1}${occupant ? `, occupied by ${benchNames[occupant]}` : ''}`}><span>{occupant ? '×' : '+'}</span></button>})}</div>}
+      {g.phase === 'prep' && <div className="floor-grid" aria-label="Shop floor placement grid">{slotPositions.map(([x, y], slot) => { const occupant: PlacementId | undefined = g.shopkeeperSlot === slot ? 'shopkeeper' : workerIds.find(id => g.placedBenches[id] === slot); return <button key={slot} className={`bench-slot ${occupant ? 'occupied' : ''}`} style={{ left: `${x}%`, top: `${y}%` }} onClick={() => placeBench(slot)} aria-label={`Grid row ${Math.floor(slot / gridColumns) + 1}, column ${slot % gridColumns + 1}${occupant ? `, occupied by ${benchNames[occupant]}` : ''}`}><span>{occupant ? '×' : '+'}</span></button>})}</div>}
       <div className="workshops">{workerIds.map(id => {
         const slot = g.placedBenches[id]; if (slot === null) return null
         const w = workers[id], ws = g.workerState[id], job = ws.active && products[ws.active.product], [x, y] = slotPositions[slot]
@@ -156,12 +163,12 @@ function App() {
           <div className="job-status">{job ? <><span>{job.icon}</span><small>{job.name}</small><div className="progress"><i style={{ width: `${ws.active!.progress / job.ticks * 100}%` }}/></div></> : <small>{ws.queue.length ? `${ws.queue.length} queued` : 'Ready'}</small>}</div>
         </div>
       })}</div>
-      <div className="display-rack">{g.display.map(p => <span key={p}>{products[p].icon}<small>{g.inventory[p]}</small></span>)}</div><div className="counter"><span className="you">🧑<small>YOU</small></span></div>
+      <div className="display-rack">{g.display.map(p => <span key={p}>{products[p].icon}<small>{g.inventory[p]}</small></span>)}</div>{g.shopkeeperSlot !== null && (() => { const [x, y] = slotPositions[g.shopkeeperSlot]; return <div className="shopkeeper-station" style={{ left: `${x}%`, top: `${y}%` }}><div className="shop-counter"><span>▤</span></div><img src={`${import.meta.env.BASE_URL}assets/shop/shopkeeper.png`} alt="Shopkeeper" draggable="false"/><small>SHOPKEEPER</small></div> })()}
       <div className="queue">{g.customers.slice(0, 3).map((c, i) => <button key={c.id} className={`visitor q${i}`}><span>{c.icon}</span><b>{c.name}</b><i style={{ width: `${c.patience / c.maxPatience * 100}%` }}/></button>)}</div><div className="door">{g.phase === 'open' ? 'OPEN' : 'CLOSED'}</div>
     </div><div className="notice">❧ {placing ? `Placing ${benchNames[placing]} — choose a glowing floor space.` : note}</div></section>
     <aside className="ledger"><div className="ledger-head"><b>SHOP LEDGER</b><button onClick={reset}>{resetArmed ? 'CONFIRM RESET' : 'RESET SAVE'}</button></div>
       <section><h2>Common materials <small>capacity {8 + g.storageLevel * 4}</small></h2><div className="materials">{(Object.keys(g.materials) as MaterialId[]).map(m => <div key={m}><span>{materialIcons[m]}</span><b>{g.materials[m]}</b><small>{m}</small></div>)}</div></section>
-      <section><h2>Workshop furniture <small>{g.phase === 'prep' ? 'tap to place or move' : 'locked while open'}</small></h2><div className="bench-palette">{workerIds.map(id => { const hired = g.hired.includes(id), placed = g.placedBenches[id] !== null; return <button key={id} className={placing === id ? 'placing' : ''} disabled={g.phase !== 'prep'} onClick={() => hired ? (placed ? removeBench(id) : setPlacing(id)) : hire(id)}><span>{workers[id].icon}</span><b>{benchNames[id]}</b><small>{hired ? (placed ? 'Placed · tap to move' : 'Place in shop') : `Hire ${workers[id].name} · 35g`}</small></button> })}</div></section>
+      <section><h2>Shop furniture <small>{g.phase === 'prep' ? 'tap to place or move' : 'locked while open'}</small></h2><div className="bench-palette"><button className={placing === 'shopkeeper' ? 'placing' : ''} disabled={g.phase !== 'prep'} onClick={() => g.shopkeeperSlot === null ? setPlacing('shopkeeper') : moveCounter()}><span>▤</span><b>Sales Counter</b><small>{g.shopkeeperSlot === null ? 'Place in shop' : 'Placed · tap to move'}</small></button>{workerIds.map(id => { const hired = g.hired.includes(id), placed = g.placedBenches[id] !== null; return <button key={id} className={placing === id ? 'placing' : ''} disabled={g.phase !== 'prep'} onClick={() => hired ? (placed ? removeBench(id) : setPlacing(id)) : hire(id)}><span>{workers[id].icon}</span><b>{benchNames[id]}</b><small>{hired ? (placed ? 'Placed · tap to move' : 'Place in shop') : `Hire ${workers[id].name} · 35g`}</small></button> })}</div></section>
       {worker && g.placedBenches[worker] !== null && <section><h2>{workers[worker].name} recipes <small>queue {g.workerState[worker].queue.length}/3</small></h2><div className="recipes">{recipesFor(worker, g.workerState[worker].level).map(p => { const r = products[p]; return <button key={p} onClick={() => queue(p)}><span>{r.icon}</span><b>{r.name}</b><small>{r.cost} {r.material} · {r.ticks} ticks</small></button> })}</div></section>}
       <section><h2>Stock room <small>{totalStock} items</small></h2><div className="stock">{productIds.filter(p => g.inventory[p] > 0).map(p => <button className={selected === p ? 'selected' : ''} key={p} onClick={() => setSelected(p)}><span>{products[p].icon}</span><b>{products[p].name}</b><em>x{g.inventory[p]}</em><small>{products[p].category}</small></button>)}{!totalStock && <p className="empty">Craft goods to fill your shelves.</p>}</div></section>
       {g.phase === 'prep' && <button className="primary" onClick={open}>TURN SIGN TO OPEN</button>}
