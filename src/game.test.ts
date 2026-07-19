@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { craftableProducts, craftTicks, customerTemplates, freshSave, loadSave, makeCustomer, priceFor, products, recipesFor, saveGame } from './game'
+import { craftableProducts, craftTicks, customerTemplates, freshSave, loadSave, makeCustomer, offerFit, priceFor, products, recipesFor, saveGame } from './game'
 
 describe('continuous shop simulation', () => {
   beforeEach(() => localStorage.clear())
@@ -12,7 +12,7 @@ describe('continuous shop simulation', () => {
     expect(save.shopkeeperSlot).toBe(16)
     save.furnitureFacing.shelf = 1
     saveGame(save)
-    expect(loadSave().version).toBe(18)
+    expect(loadSave().version).toBe(19)
     expect(loadSave().discoveredRecipes).toEqual(expect.arrayContaining(['shortsword', 'healingPotion']))
     expect(loadSave().displays.shelf.slot).toBe(12)
     expect(loadSave().ownedDisplays.shelf).toBe(true)
@@ -27,7 +27,7 @@ describe('continuous shop simulation', () => {
     delete (oldSave as Partial<typeof oldSave>).placedBenches
     localStorage.setItem('magic-and-steel-save', JSON.stringify(oldSave))
     const migrated = loadSave()
-    expect(migrated.version).toBe(18)
+    expect(migrated.version).toBe(19)
     expect(migrated.discoveredRecipes).toContain('shortsword')
     expect(migrated.placedBenches.blacksmith).not.toBeNull()
     expect(migrated.shopkeeperSlot).not.toBeNull()
@@ -94,6 +94,32 @@ describe('continuous shop simulation', () => {
     expect(visitor.browseTicks).toBe(2)
     expect(visitor.browsingProduct).toBe('shortsword')
     expect(visitor.requestedProduct).toBe('shortsword')
+  })
+
+  it('requires exact products unless an alternative is suggested', () => {
+    const customer=makeCustomer(0,1,['shortsword','healingPotion'])
+    expect(customer.requestedProduct).toBeDefined()
+    expect(offerFit(customer,customer.requestedProduct!)).toBe('exact')
+    const wrong=customer.requestedProduct==='shortsword'?'healingPotion':'shortsword'
+    expect(offerFit(customer,wrong)).toBe('wrongItem')
+    expect(['alternative','wrongCategory']).toContain(offerFit(customer,wrong,true))
+  })
+
+  it('rejects category products that are too advanced or too basic', () => {
+    const novice={...makeCustomer(2,2,['healingPotion']),requestedProduct:undefined,request:'potion' as const,level:1}
+    expect(offerFit(novice,'emberCordial')).toBe('tooHigh')
+    const veteran={...novice,level:3}
+    expect(offerFit(veteran,'healingPotion')).toBe('tooLow')
+    expect(offerFit(veteran,'focusTonic')).toBe('category')
+  })
+
+  it('only generates category requests the current catalogue can satisfy', () => {
+    const earlyPaladin=makeCustomer(5,6,['shortsword','healingPotion'])
+    expect(earlyPaladin.requestedProduct).toBeUndefined()
+    expect(earlyPaladin.level).toBe(2)
+    const matching=(['shortsword','healingPotion'] as const).find(product=>products[product].category===earlyPaladin.request)
+    expect(matching).toBeDefined()
+    expect(offerFit(earlyPaladin,matching!)).toBe('category')
   })
 
   it('includes the complete illustrated adventurer and supplier cast', () => {
