@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { craftableProducts, customerTemplates, freshSave, loadSave, makeCustomer, priceFor, products, recipesFor, saveGame } from './game'
+import { craftableProducts, craftTicks, customerTemplates, freshSave, loadSave, makeCustomer, priceFor, products, recipesFor, saveGame } from './game'
 
 describe('continuous shop simulation', () => {
   beforeEach(() => localStorage.clear())
@@ -12,7 +12,7 @@ describe('continuous shop simulation', () => {
     expect(save.shopkeeperSlot).toBe(16)
     save.furnitureFacing.shelf = 1
     saveGame(save)
-    expect(loadSave().version).toBe(14)
+    expect(loadSave().version).toBe(15)
     expect(loadSave().displays.shelf.slot).toBe(12)
     expect(loadSave().ownedDisplays.shelf).toBe(true)
     expect(loadSave().ownedDisplays.weaponRack).toBe(false)
@@ -26,7 +26,7 @@ describe('continuous shop simulation', () => {
     delete (oldSave as Partial<typeof oldSave>).placedBenches
     localStorage.setItem('magic-and-steel-save', JSON.stringify(oldSave))
     const migrated = loadSave()
-    expect(migrated.version).toBe(14)
+    expect(migrated.version).toBe(15)
     expect(migrated.placedBenches.blacksmith).not.toBeNull()
     expect(migrated.shopkeeperSlot).not.toBeNull()
   })
@@ -90,5 +90,11 @@ describe('continuous shop simulation', () => {
     expect(recipesFor('blacksmith', 2)).toContain('ironBuckler')
     expect(recipesFor('blacksmith', 3)).toContain('hearthSpear')
     expect(Object.keys(products)).toHaveLength(16)
+  })
+
+  it('makes mastered recipes faster without dropping below two ticks', () => {
+    expect(craftTicks('shortsword', 0)).toBe(4)
+    expect(craftTicks('shortsword', 5)).toBe(3)
+    expect(craftTicks('shortsword', 50)).toBe(2)
   })
 })
