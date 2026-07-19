@@ -18,8 +18,7 @@ const displayInfo: Record<DisplayId, { name: string; icon: string; price: number
   potionDisplay: { name: 'Potion Display', icon: '⚗', price: 22, accepts: product => products[product].category === 'potion' },
 }
 const displayCapacity: Record<DisplayId, number> = { shelf: 3, weaponRack: 3, armourStand: 1, potionDisplay: 3 }
-const illustratedProducts = new Set<ProductId>(['shortsword', 'leatherShirt', 'healingPotion', 'quarterstaff'])
-const productArt = (product: ProductId) => illustratedProducts.has(product) ? `${import.meta.env.BASE_URL}assets/items/${product}.png` : null
+const productArt = (product: ProductId) => `${import.meta.env.BASE_URL}assets/items/${product}.png`
 const ItemSprite = ({ product, className = 'item-sprite' }: { product: ProductId; className?: string }) => {
   const art = productArt(product)
   return art ? <img className={className} src={art} alt=""/> : <span className={className}>{products[product].icon}</span>
@@ -62,6 +61,7 @@ function App() {
   const [furnitureTile, setFurnitureTile] = useState<number | null>(null)
   const [activeDisplay, setActiveDisplay] = useState<DisplayId | null>(null)
   const [activeFixture, setActiveFixture] = useState<WorkerId | 'shopkeeper' | null>(null)
+  const [unlockCelebration, setUnlockCelebration] = useState<{ worker: WorkerId; products: ProductId[] } | null>(null)
   const active = g.customers[0] || null
   const occupiedSlots = new Set<number>([...Object.values(g.placedBenches).filter((slot): slot is number => slot !== null), ...Object.values(g.displays).map(display => display.slot).filter((slot): slot is number => slot !== null), ...(g.shopkeeperSlot === null ? [] : [g.shopkeeperSlot])])
   const browseSlots = slotPositions.map((_, slot) => slot).filter(slot => {
@@ -109,8 +109,16 @@ function App() {
           const masteryMilestone=s.mastery[ws.active.product]%5===0
           setNote(`${workers[id].name} finishes ${recipe.name}.${masteryMilestone?' Recipe mastery improved: future crafts are faster!':''}`)
           delete ws.active
-          if (ws.xp >= 8 && ws.level === 2) { ws.level = 3; setNote(`${workers[id].name} reached level 3 and learned an advanced recipe!`) }
-          else if (ws.xp >= 3 && ws.level === 1) { ws.level = 2; setNote(`${workers[id].name} reached level 2 and learned two new recipes!`) }
+          const oldLevel=ws.level
+          if (ws.xp >= 8 && ws.level === 2) ws.level = 3
+          else if (ws.xp >= 3 && ws.level === 1) ws.level = 2
+          if(ws.level>oldLevel){
+            const unlocked=recipesFor(id,ws.level).filter(product=>!s.discoveredRecipes.includes(product))
+            s.discoveredRecipes.push(...unlocked)
+            s.paused=true
+            if(unlocked.length)setUnlockCelebration({worker:id,products:unlocked})
+            setNote(`${workers[id].name} reached level ${ws.level}. New recipes have been added to the compendium!`)
+          }
         }
       }
     }
@@ -145,6 +153,9 @@ function App() {
     if (!s.hired.includes(id)) {
       if (s.coins < 35) { setNote(`You need 35g to hire the ${workers[id].name}.`); return s }
       s.coins -= 35; s.expenses += 35; s.hired.push(id)
+      const unlocked=recipesFor(id,s.workerState[id].level).filter(product=>!s.discoveredRecipes.includes(product))
+      s.discoveredRecipes.push(...unlocked)
+      if(unlocked.length)setUnlockCelebration({worker:id,products:unlocked})
     }
     s.placedBenches[id] = slot; setFurnitureTile(null)
     setNote(`${workers[id].name} joins the shop at the ${benchNames[id]}.`)
@@ -293,6 +304,7 @@ function App() {
     </aside></main>
     {showCompendium && <div className="settings-backdrop" onMouseDown={() => setShowCompendium(false)}><section className="settings-panel compendium-panel" role="dialog" aria-modal="true" aria-labelledby="compendium-title" onMouseDown={event => event.stopPropagation()}><button className="settings-close" onClick={() => setShowCompendium(false)} aria-label="Close compendium">×</button><h2 id="compendium-title">SHOP COMPENDIUM</h2><nav className="compendium-tabs" aria-label="Compendium sections">{(['workers','recipes','customers'] as const).map(tab=><button key={tab} className={compendiumTab===tab?'active':''} onClick={()=>setCompendiumTab(tab)}>{tab.toUpperCase()}</button>)}</nav><div className="compendium-grid">{compendiumTab==='workers'&&workerIds.map(id=>{const unlocked=g.hired.includes(id),state=g.workerState[id];return <article key={id} className={unlocked?'':'locked'}>{unlocked?<img src={`${import.meta.env.BASE_URL}assets/workers/${id}.png`} alt=""/>:<span className="mystery">?</span>}<div><b>{unlocked?workers[id].name:'Unknown Worker'}</b><small>{unlocked?`${workerDescriptions[id]} Level ${state.level} · Wage ${workers[id].wage}g/day`:'Hire this craftsperson from the floor furniture menu to reveal them.'}</small></div></article>})}{compendiumTab==='recipes'&&productIds.map(id=>{const recipe=products[id],unlocked=g.hired.includes(recipe.worker)&&g.workerState[recipe.worker].level>=recipe.level;return <article key={id} className={unlocked?'':'locked'}>{unlocked?<ItemSprite product={id}/>:<span className="mystery">?</span>}<div><b>{unlocked?recipe.name:'Unknown Recipe'}</b><small>{unlocked?`${recipe.category} · ${recipe.cost} ${recipe.material} · ${recipe.ticks} ticks · ${recipe.price}g base value`:`Reach worker level ${recipe.level} to reveal this recipe.`}</small></div></article>})}{compendiumTab==='customers'&&customerTemplates.map(customer=>{const unlocked=g.discoveredCustomers.includes(customer.sprite as CustomerSprite);return <article key={customer.sprite} className={unlocked?'':'locked'}>{unlocked?<img src={`${import.meta.env.BASE_URL}assets/customers/${customer.sprite}.png`} alt=""/>:<span className="mystery">?</span>}<div><b>{unlocked?`${customer.name} · ${customer.role}`:'Unknown Visitor'}</b><small>{unlocked?(customer.kind==='supplier'?`Supplier · offers ${customer.material} deliveries`:`Customer · prefers ${customer.likes.join(', ')}`):'Meet this visitor during an open shop day to reveal them.'}</small></div></article>})}</div></section></div>}
     {showSettings && <div className="settings-backdrop" onMouseDown={() => setShowSettings(false)}><section className="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={event => event.stopPropagation()}><button className="settings-close" onClick={() => setShowSettings(false)} aria-label="Close settings">×</button><h2 id="settings-title">SHOP SETTINGS</h2><div className="setting-row"><div><b>Automatic pause</b><small>Pause whenever a new visitor arrives with a request.</small></div><button className={`toggle ${g.autoPause ? 'on' : ''}`} role="switch" aria-checked={g.autoPause} onClick={() => update(s => { s.autoPause = !s.autoPause; return s })}><span/>{g.autoPause ? 'ON' : 'OFF'}</button></div><div className="setting-row"><div><b>Game speed</b><small>Choose the normal or accelerated shop clock.</small></div><div className="settings-speed"><button className={g.speed === 1 ? 'active' : ''} onClick={() => update(s => { s.speed = 1; return s })}>1×</button><button className={g.speed === 2 ? 'active' : ''} onClick={() => update(s => { s.speed = 2; return s })}>2×</button></div></div><p>Settings save automatically on this device.</p></section></div>}
+    {unlockCelebration && <div className="unlock-backdrop"><section className="unlock-card" role="dialog" aria-modal="true" aria-labelledby="unlock-title"><span className="unlock-rays">✦</span><small>RECIPE DISCOVERY</small><h2 id="unlock-title">{workers[unlockCelebration.worker].name} found something new!</h2><div className="unlock-recipes">{unlockCelebration.products.map(id=><article key={id}><ItemSprite product={id}/><div><b>{products[id].name}</b><small>{products[id].cost} {products[id].material} · {products[id].price}g value</small></div></article>)}</div><p>The recipes are now recorded in your compendium and ready to craft.</p><button onClick={()=>setUnlockCelebration(null)}>CONTINUE</button></section></div>}
     <footer><div><b>SHOPKEEPER'S NOTE</b><p>{help[Math.min(g.tutorial, help.length - 1)]}</p></div><span>✓ Saved on this device</span></footer>
   </div>
 }
