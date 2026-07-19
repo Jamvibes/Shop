@@ -12,7 +12,7 @@ describe('continuous shop simulation', () => {
     expect(save.shopkeeperSlot).toBe(16)
     save.furnitureFacing.shelf = 1
     saveGame(save)
-    expect(loadSave().version).toBe(12)
+    expect(loadSave().version).toBe(13)
     expect(loadSave().displays.shelf.slot).toBe(12)
     expect(loadSave().ownedDisplays.shelf).toBe(true)
     expect(loadSave().ownedDisplays.weaponRack).toBe(false)
@@ -26,7 +26,7 @@ describe('continuous shop simulation', () => {
     delete (oldSave as Partial<typeof oldSave>).placedBenches
     localStorage.setItem('magic-and-steel-save', JSON.stringify(oldSave))
     const migrated = loadSave()
-    expect(migrated.version).toBe(12)
+    expect(migrated.version).toBe(13)
     expect(migrated.placedBenches.blacksmith).not.toBeNull()
     expect(migrated.shopkeeperSlot).not.toBeNull()
   })
@@ -38,6 +38,13 @@ describe('continuous shop simulation', () => {
     saveGame(save)
     expect(loadSave().speed).toBe(2)
     expect(loadSave().autoPause).toBe(false)
+  })
+
+  it('migrates displayed merchandise to counted display stock', () => {
+    const oldSave = { ...freshSave(), version: 12 as const }
+    oldSave.displays.shelf = { slot: 12, product: 'shortsword', quantity: 0 }
+    localStorage.setItem('magic-and-steel-save', JSON.stringify(oldSave))
+    expect(loadSave().displays.shelf.quantity).toBe(1)
   })
 
   it('migrates sixth-column furniture into the 5 by 5 grid', () => {

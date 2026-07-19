@@ -3,7 +3,7 @@ export type MaterialId='iron'|'leather'|'herbs'|'wood'
 export type ProductId='shortsword'|'handaxe'|'ironBuckler'|'hearthSpear'|'leatherShirt'|'leatherHood'|'ridingBoots'|'scoutJerkin'|'healingPotion'|'focusTonic'|'soothingSalve'|'emberCordial'|'quarterstaff'|'huntingBow'|'oakBuckler'|'wayfarerFlute'
 export type Phase='prep'|'open'|'results'
 export type DisplayId='shelf'|'weaponRack'|'armourStand'|'potionDisplay'
-export type DisplayState={slot:number|null;product:ProductId|null}
+export type DisplayState={slot:number|null;product:ProductId|null;quantity:number}
 export type FurnitureId=WorkerId|DisplayId|'shopkeeper'
 export type FurnitureFacing=0|1
 export type Recipe={name:string;icon:string;worker:WorkerId;material:MaterialId;cost:number;price:number;ticks:number;category:'blade'|'armour'|'potion'|'staff'|'bow';level:number}
@@ -43,10 +43,10 @@ export const customerTemplates:Omit<Customer,'id'|'patience'>[]=[
  {name:'Pella',role:'Herb Gatherer',icon:'🌱',sprite:'herbalist',likes:[],request:'potion',maxPatience:9,kind:'supplier',material:'herbs',amount:4,cost:18},
 ]
 export type WorkerState={level:number;xp:number;queue:ProductId[];active?:{product:ProductId;progress:number}}
-export type Save={version:12;day:number;phase:Phase;minutes:number;coins:number;materials:Record<MaterialId,number>;inventory:Record<ProductId,number>;hired:WorkerId[];placedBenches:Record<WorkerId,number|null>;shopkeeperSlot:number|null;displays:Record<DisplayId,DisplayState>;ownedDisplays:Record<DisplayId,boolean>;furnitureFacing:Record<FurnitureId,FurnitureFacing>;workerState:Record<WorkerId,WorkerState>;customers:Customer[];nextCustomer:number;served:number;sales:number;revenue:number;expenses:number;reputation:number;storageLevel:number;tutorial:number;paused:boolean;speed:1|2;autoPause:boolean}
+export type Save={version:13;day:number;phase:Phase;minutes:number;coins:number;materials:Record<MaterialId,number>;inventory:Record<ProductId,number>;hired:WorkerId[];placedBenches:Record<WorkerId,number|null>;shopkeeperSlot:number|null;displays:Record<DisplayId,DisplayState>;ownedDisplays:Record<DisplayId,boolean>;furnitureFacing:Record<FurnitureId,FurnitureFacing>;workerState:Record<WorkerId,WorkerState>;customers:Customer[];nextCustomer:number;served:number;sales:number;revenue:number;expenses:number;reputation:number;storageLevel:number;tutorial:number;paused:boolean;speed:1|2;autoPause:boolean}
 const emptyInventory=():Record<ProductId,number>=>Object.fromEntries(Object.keys(products).map(k=>[k,0])) as Record<ProductId,number>
 const workerState=():Record<WorkerId,WorkerState>=>({blacksmith:{level:1,xp:0,queue:[]},leatherworker:{level:1,xp:0,queue:[]},alchemist:{level:1,xp:0,queue:[]},carpenter:{level:1,xp:0,queue:[]}})
-export const freshSave=():Save=>({version:12,day:1,phase:'prep',minutes:8*60,coins:150,materials:{iron:8,leather:8,herbs:8,wood:8},inventory:emptyInventory(),hired:['blacksmith','alchemist'],placedBenches:{blacksmith:6,leatherworker:null,alchemist:23,carpenter:null},shopkeeperSlot:16,displays:{shelf:{slot:12,product:null},weaponRack:{slot:null,product:null},armourStand:{slot:null,product:null},potionDisplay:{slot:null,product:null}},ownedDisplays:{shelf:true,weaponRack:false,armourStand:false,potionDisplay:false},furnitureFacing:{blacksmith:0,leatherworker:0,alchemist:0,carpenter:0,shopkeeper:0,shelf:0,weaponRack:0,armourStand:0,potionDisplay:0},workerState:workerState(),customers:[],nextCustomer:1,served:0,sales:0,revenue:0,expenses:0,reputation:0,storageLevel:1,tutorial:0,paused:false,speed:1,autoPause:true})
+export const freshSave=():Save=>({version:13,day:1,phase:'prep',minutes:8*60,coins:150,materials:{iron:8,leather:8,herbs:8,wood:8},inventory:emptyInventory(),hired:['blacksmith','alchemist'],placedBenches:{blacksmith:6,leatherworker:null,alchemist:23,carpenter:null},shopkeeperSlot:16,displays:{shelf:{slot:12,product:null,quantity:0},weaponRack:{slot:null,product:null,quantity:0},armourStand:{slot:null,product:null,quantity:0},potionDisplay:{slot:null,product:null,quantity:0}},ownedDisplays:{shelf:true,weaponRack:false,armourStand:false,potionDisplay:false},furnitureFacing:{blacksmith:0,leatherworker:0,alchemist:0,carpenter:0,shopkeeper:0,shelf:0,weaponRack:0,armourStand:0,potionDisplay:0},workerState:workerState(),customers:[],nextCustomer:1,served:0,sales:0,revenue:0,expenses:0,reputation:0,storageLevel:1,tutorial:0,paused:false,speed:1,autoPause:true})
 export const loadSave=():Save=>{try{
  const s=JSON.parse(localStorage.getItem('magic-and-steel-save')||'null');if(!s)return freshSave()
  if(s.version===3){const map=[6,8,10,16,19,21,23,17];s.placedBenches=Object.fromEntries(Object.entries(s.placedBenches).map(([id,slot])=>[id,slot===null?null:map[Number(slot)]??null]))}
@@ -54,10 +54,11 @@ export const loadSave=():Save=>{try{
  if(s.version<5)s.shopkeeperSlot=16
  if(s.version<8){const occupied=new Set<number>();const remap=(slot:number|null)=>{if(slot===null)return null;const row=Math.floor(slot/6),column=Math.min(slot%6,4);let next=Math.min(24,row*5+column);while(occupied.has(next))next=(next+1)%25;occupied.add(next);return next};(['blacksmith','leatherworker','alchemist','carpenter']as WorkerId[]).forEach(id=>s.placedBenches[id]=remap(s.placedBenches[id]));s.shopkeeperSlot=remap(s.shopkeeperSlot)}
  if(s.version<9)s.customers=(s.customers||[]).map((customer:Customer,index:number)=>({...customer,sprite:customerTemplates[index%customerTemplates.length].sprite}))
- if(s.version<10)s.displays={shelf:{slot:12,product:null},weaponRack:{slot:null,product:null},armourStand:{slot:null,product:null},potionDisplay:{slot:null,product:null}}
+ if(s.version<10)s.displays={shelf:{slot:12,product:null,quantity:0},weaponRack:{slot:null,product:null,quantity:0},armourStand:{slot:null,product:null,quantity:0},potionDisplay:{slot:null,product:null,quantity:0}}
  if(s.version<11)s.furnitureFacing={blacksmith:0,leatherworker:0,alchemist:0,carpenter:0,shopkeeper:0,shelf:0,weaponRack:0,armourStand:0,potionDisplay:0}
  if(s.version<12)s.ownedDisplays={shelf:true,weaponRack:true,armourStand:true,potionDisplay:true}
- return{...s,version:12,inventory:{...emptyInventory(),...s.inventory},speed:s.speed===2?2:1,autoPause:s.autoPause!==false}
+ const displays=Object.fromEntries((Object.keys(s.displays) as DisplayId[]).map(id=>{const display=s.displays[id];return[id,{...display,quantity:display.product?Math.max(1,display.quantity||1):0}]})) as Record<DisplayId,DisplayState>
+ return{...s,version:13,displays,inventory:{...emptyInventory(),...s.inventory},speed:s.speed===2?2:1,autoPause:s.autoPause!==false}
 }catch{return freshSave()}}
 export const saveGame=(s:Save)=>localStorage.setItem('magic-and-steel-save',JSON.stringify(s))
 export const recipesFor=(w:WorkerId,level:number)=>(Object.keys(products) as ProductId[]).filter(p=>products[p].worker===w&&products[p].level<=level)
