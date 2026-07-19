@@ -12,7 +12,7 @@ describe('continuous shop simulation', () => {
     expect(save.shopkeeperSlot).toBe(16)
     save.furnitureFacing.shelf = 1
     saveGame(save)
-    expect(loadSave().version).toBe(17)
+    expect(loadSave().version).toBe(18)
     expect(loadSave().discoveredRecipes).toEqual(expect.arrayContaining(['shortsword', 'healingPotion']))
     expect(loadSave().displays.shelf.slot).toBe(12)
     expect(loadSave().ownedDisplays.shelf).toBe(true)
@@ -27,7 +27,7 @@ describe('continuous shop simulation', () => {
     delete (oldSave as Partial<typeof oldSave>).placedBenches
     localStorage.setItem('magic-and-steel-save', JSON.stringify(oldSave))
     const migrated = loadSave()
-    expect(migrated.version).toBe(17)
+    expect(migrated.version).toBe(18)
     expect(migrated.discoveredRecipes).toContain('shortsword')
     expect(migrated.placedBenches.blacksmith).not.toBeNull()
     expect(migrated.shopkeeperSlot).not.toBeNull()
@@ -77,6 +77,16 @@ describe('continuous shop simulation', () => {
     expect(available).toContain(exactRequest.requestedProduct)
     expect(categoryRequest.requestedProduct).toBeUndefined()
     expect(available.map(product => products[product].category)).toContain(categoryRequest.request)
+  })
+
+  it('initializes and migrates daily report counters', () => {
+    const save=freshSave()
+    expect(save.dailyProductSales.shortsword).toBe(0)
+    expect(save.missedRequests).toBe(0)
+    expect(save.displaySales).toBe(0)
+    saveGame(save)
+    expect(loadSave().wagesPaid).toBe(0)
+    expect(loadSave().deliveryPaid).toBe(0)
   })
 
   it('lets displayed merchandise guide browsing and requests', () => {
