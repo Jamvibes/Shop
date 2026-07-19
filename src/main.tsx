@@ -7,6 +7,7 @@ import {
 import './style.css'
 
 const materialIcons: Record<MaterialId, string> = { iron: '◆', leather: '▱', herbs: '☘', wood: '▬' }
+const categoryIcons: Record<string,string> = { blade:'⚔', armour:'🛡', potion:'⚗', staff:'✦', bow:'🏹' }
 const workerIds = Object.keys(workers) as WorkerId[]
 const productIds = Object.keys(products) as ProductId[]
 type PlacementId = WorkerId | DisplayId | 'shopkeeper'
@@ -62,7 +63,7 @@ function App() {
   const [activeDisplay, setActiveDisplay] = useState<DisplayId | null>(null)
   const [activeFixture, setActiveFixture] = useState<WorkerId | 'shopkeeper' | null>(null)
   const [unlockCelebration, setUnlockCelebration] = useState<{ worker: WorkerId; products: ProductId[] } | null>(null)
-  const active = g.customers[0] || null
+  const active = g.customers[0]?.browseTicks === 0 ? g.customers[0] : null
   const occupiedSlots = new Set<number>([...Object.values(g.placedBenches).filter((slot): slot is number => slot !== null), ...Object.values(g.displays).map(display => display.slot).filter((slot): slot is number => slot !== null), ...(g.shopkeeperSlot === null ? [] : [g.shopkeeperSlot])])
   const browseSlots = slotPositions.map((_, slot) => slot).filter(slot => {
     if (occupiedSlots.has(slot)) return false
@@ -70,12 +71,12 @@ function App() {
     return [...occupiedSlots].every(occupied => Math.abs(row - Math.floor(occupied / gridColumns)) + Math.abs(column - occupied % gridColumns) > 1)
   })
   const customerPosition = (customerId: number, queueIndex: number) => {
-    if (queueIndex === 0 && g.shopkeeperSlot !== null) {
+    const customer = g.customers[queueIndex]
+    if (queueIndex === 0 && customer?.browseTicks === 0 && g.shopkeeperSlot !== null) {
       const [x, y] = slotPositions[g.shopkeeperSlot]
       return [Math.max(8, x - 7), Math.min(73, y + 4.8)] as const
     }
-    const customer = g.customers[queueIndex]
-    const relevantDisplay = customer && displayIds.map(id => g.displays[id]).find(display => display.slot !== null && display.product && (customer.requestedProduct === display.product || (!customer.requestedProduct && products[display.product].category === customer.request)))
+    const relevantDisplay = customer && displayIds.map(id => g.displays[id]).find(display => display.slot !== null && display.product && (customer.browsingProduct === display.product || customer.requestedProduct === display.product || (!customer.requestedProduct && products[display.product].category === customer.request)))
     if (relevantDisplay?.slot !== null && relevantDisplay?.slot !== undefined) {
       const [x, y] = slotPositions[relevantDisplay.slot]
       return [Math.min(90, x + 5), Math.min(75, y + 4)] as const
@@ -89,7 +90,7 @@ function App() {
   useEffect(() => saveGame(g), [g])
   useEffect(() => {
     if (g.phase !== 'open' || g.paused) return
-    const timer = setInterval(() => update(tick), 1400 / g.speed)
+    const timer = setInterval(() => update(tick), 3000 / g.speed)
     return () => clearInterval(timer)
   }, [g.phase, g.paused, g.speed])
 
@@ -122,17 +123,23 @@ function App() {
         }
       }
     }
-    s.customers.forEach(c => c.patience--)
+    const browsingBefore=new Set(s.customers.filter(c=>c.browseTicks>0).map(c=>c.id))
+    s.customers.forEach(c => {
+      if(c.browseTicks>0)c.browseTicks--
+      else c.patience--
+    })
+    const readyVisitor=s.customers.find(c=>c.browseTicks===0&&browsingBefore.has(c.id))
     const gone = s.customers.filter(c => c.patience <= 0)
     if (gone.length) { s.reputation = Math.max(-2, s.reputation - gone.length); setNote(`${gone[0].name} leaves after waiting.`) }
     s.customers = s.customers.filter(c => c.patience > 0)
     if (s.minutes % 30 === 0 && s.customers.length < 3 && s.minutes < 18 * 60) {
-      const visitor = makeCustomer(s.nextCustomer - 1, s.nextCustomer++, craftableProducts(s))
+      const displayedProducts=displayIds.map(id=>s.displays[id].product).filter((product):product is ProductId=>product!==null)
+      const visitor = makeCustomer(s.nextCustomer - 1, s.nextCustomer++, craftableProducts(s),displayedProducts)
       s.customers.push(visitor)
       if (!s.discoveredCustomers.includes(visitor.sprite)) s.discoveredCustomers.push(visitor.sprite)
-      if (s.autoPause) { s.paused = true; setNote(`${visitor.name} has a request. The shop is paused.`) }
-      else setNote('A new visitor approaches the counter.')
+      setNote(`${visitor.name} enters and starts browsing.`)
     }
+    if(readyVisitor){if(s.autoPause){s.paused=true;setNote(`${readyVisitor.name} is ready at the counter. The shop is paused.`)}else setNote(`${readyVisitor.name} approaches with a request.`)}
     if (s.minutes >= 18 * 60) { s.minutes = 18 * 60; s.phase = 'results'; s.paused = false; closeAccounts(s) }
     return s
   }
@@ -203,6 +210,12 @@ function App() {
     const product = s.displays[id].product; if (!product || s.phase === 'results') return s
     s.inventory[product] += s.displays[id].quantity; s.displays[id].product = null; s.displays[id].quantity = 0; setNote(`Displayed ${products[product].name} returned to the stock room.`); return s
   })
+  const returnOneDisplayItem = (id: DisplayId) => update(s => {
+    const display=s.displays[id],product=display.product;if(!product||s.phase==='results')return s
+    s.inventory[product]++;display.quantity--
+    if(display.quantity<=0){display.product=null;display.quantity=0}
+    setNote(`One ${products[product].name} returned to the stock room.`);return s
+  })
   const rotateFurniture = (id: PlacementId) => update(s => {
     if (s.phase !== 'prep') { setNote('Furniture can only be rotated during preparation.'); return s }
     s.furnitureFacing[id] = s.furnitureFacing[id] === 0 ? 1 : 0
@@ -241,12 +254,13 @@ function App() {
   const open = () => update(s => {
     if (!workerIds.some(id => s.placedBenches[id] !== null)) { setNote('Place at least one workbench before opening.'); return s }
     if (s.shopkeeperSlot === null) { setNote('Place the Sales Counter before opening the shop.'); return s }
-    const firstVisitor = makeCustomer(0, s.nextCustomer++, craftableProducts(s))
-    s.phase = 'open'; s.tutorial = 2; s.customers.push(firstVisitor); if (!s.discoveredCustomers.includes(firstVisitor.sprite)) s.discoveredCustomers.push(firstVisitor.sprite); s.paused = s.autoPause; setPlacing(null)
-    setNote(s.autoPause ? `${firstVisitor.name} has the first request. The shop is paused.` : 'The sign turns to OPEN.'); return s
+    const displayedProducts=displayIds.map(id=>s.displays[id].product).filter((product):product is ProductId=>product!==null)
+    const firstVisitor = makeCustomer(0, s.nextCustomer++, craftableProducts(s),displayedProducts)
+    s.phase = 'open'; s.tutorial = 2; s.customers.push(firstVisitor); if (!s.discoveredCustomers.includes(firstVisitor.sprite)) s.discoveredCustomers.push(firstVisitor.sprite); s.paused = false; setPlacing(null)
+    setNote(`${firstVisitor.name} enters and looks over the displays.`); return s
   })
   const serve = (action: 'sell' | 'haggle' | 'suggest' | 'wait' | 'refuse' | 'buy') => update(s => {
-    const c = s.customers[0]; if (!c) return s
+    const c = s.customers[0]; if (!c || c.browseTicks>0) return s
     if (c.kind === 'supplier') {
       if (action === 'buy' && c.material && c.amount && c.cost) {
         if (s.coins < c.cost) { setNote('You cannot afford the bundle.'); return s }
@@ -254,7 +268,7 @@ function App() {
       } else setNote(`${c.name} takes the bundle elsewhere.`)
       s.customers.shift(); s.served++; return s
     }
-    if (action === 'wait') { c.patience = Math.min(c.maxPatience + 2, c.patience + 3); s.customers.push(s.customers.shift()!); setNote(`${c.name} browses.`); return s }
+    if (action === 'wait') { c.patience = Math.min(c.maxPatience + 2, c.patience + 3); c.browseTicks=2; s.customers.push(s.customers.shift()!); setNote(`${c.name} browses a little longer.`); return s }
     if (action === 'refuse') { s.customers.shift(); s.served++; setNote(`${c.name} leaves.`); return s }
     const stockedDisplay = selected ? displayIds.find(id => s.displays[id].product === selected) : undefined
     if (!selected || (!s.inventory[selected] && !stockedDisplay)) { setNote('Choose an item in stock or on display.'); return s }
@@ -289,10 +303,10 @@ function App() {
       })}</div>
       {displayIds.map(id => { const display = g.displays[id]; if(display.slot === null)return null; const [x,y]=slotPositions[display.slot],artName=id==='shelf'?'shelf-v2':id==='weaponRack'?'weaponRack-v2':id,art=display.product&&productArt(display.product); return <button key={id} className={`map-display facing-${g.furnitureFacing[id]} ${id} ${display.product?'stocked':''}`} style={{left:`${x}%`,top:`${y}%`}} onClick={()=>setActiveDisplay(id)} aria-label={`${displayInfo[id].name}${display.product?`, displaying ${display.quantity} ${products[display.product].name}`:', empty'}`}><img src={`${import.meta.env.BASE_URL}assets/displays/${artName}.png`} alt=""/><span className={`merchandise-slots count-${display.quantity}`}>{display.product&&Array.from({length:display.quantity},(_,index)=>art?<img key={index} src={art} alt=""/>:<i key={index}>{products[display.product!].icon}</i>)}</span></button> })}
       {furnitureTile !== null && (()=>{const [x,y]=slotPositions[furnitureTile];return <div className="floor-picker furniture-catalogue" style={{left:`${x}%`,top:`${y}%`}} role="dialog" aria-label="Furniture shop"><button className="picker-close" onClick={()=>setFurnitureTile(null)}>×</button><b>FURNITURE SHOP</b><small>Choose furniture or hire a craftsperson for this tile.</small>{displayIds.map(id=>{const placed=g.displays[id].slot!==null,owned=g.ownedDisplays[id],affordable=g.coins>=displayInfo[id].price;return <button key={id} disabled={placed||(!owned&&!affordable)} onClick={()=>buyOrPlaceDisplay(id,furnitureTile)}><span>{displayInfo[id].icon}</span><i><strong>{displayInfo[id].name}</strong><small>{placed?'PLACED':owned?'OWNED · PLACE':affordable?`BUY ${displayInfo[id].price}g & PLACE`:`NEED ${displayInfo[id].price}g`}</small></i></button>})}<b className="catalogue-subhead">WORKSHOP FURNITURE</b>{workerIds.map(id=>{const placed=g.placedBenches[id]!==null,hired=g.hired.includes(id),affordable=g.coins>=35;return <button key={id} disabled={placed||(!hired&&!affordable)} onClick={()=>hireAndPlace(id,furnitureTile)}><span>{workers[id].icon}</span><i><strong>{benchNames[id]}</strong><small>{placed?'PLACED':hired?'OWNED · PLACE':affordable?`HIRE ${workers[id].name.toUpperCase()} · 35g`:'NEED 35g'}</small></i></button>})}</div>})()}
-      {activeDisplay && g.displays[activeDisplay].slot !== null && (()=>{const display=g.displays[activeDisplay],item=display.product&&products[display.product],slot=display.slot!,[x,y]=slotPositions[slot],compatible=productIds.filter(product=>displayInfo[activeDisplay].accepts(product)&&g.inventory[product]>0&&(display.product===null||display.product===product));return <div className={`display-popup stocking-popup ${y<35?'below':''}`} style={{left:`${x}%`,top:`${y}%`}} role="dialog" aria-label={`${displayInfo[activeDisplay].name} stocking menu`}><button className="picker-close" onClick={()=>setActiveDisplay(null)}>×</button><b>{displayInfo[activeDisplay].name}</b><small>{item?`${item.name} · ${display.quantity}/${displayCapacity[activeDisplay]} spaces filled`:`Empty · ${displayCapacity[activeDisplay]} merchandise spaces`}</small>{item&&<><button onClick={()=>{setSelected(display.product);setActiveDisplay(null)}}>OFFER {item.name.toUpperCase()}</button><button disabled={g.phase==='results'} onClick={()=>clearDisplay(activeDisplay)}>RETURN ALL TO STOCK</button></>}<b className="stocking-subhead">STOCK FROM INVENTORY</b><div className="stocking-list">{compatible.map(product=>{const art=productArt(product);return <button key={product} disabled={g.phase==='results'||display.quantity>=displayCapacity[activeDisplay]} onClick={()=>stockDisplay(activeDisplay,product)}>{art?<img src={art} alt=""/>:<span>{products[product].icon}</span>}<i><strong>{products[product].name}</strong><small>{g.inventory[product]} in stock · add one</small></i></button>})}{!compatible.length&&<em>{display.quantity>=displayCapacity[activeDisplay]?'Display is full.':'No compatible items in the stock room.'}</em>}</div><button disabled={g.phase!=='prep'} onClick={()=>rotateFurniture(activeDisplay)}>ROTATE ↻</button><button disabled={g.phase!=='prep'} onClick={()=>moveDisplay(activeDisplay)}>MOVE</button><button disabled={g.phase!=='prep'} onClick={()=>storeFurniture(activeDisplay)}>PLACE IN STORAGE</button></div>})()}
+      {activeDisplay && g.displays[activeDisplay].slot !== null && (()=>{const display=g.displays[activeDisplay],item=display.product&&products[display.product],slot=display.slot!,[x,y]=slotPositions[slot],compatible=productIds.filter(product=>displayInfo[activeDisplay].accepts(product)&&g.inventory[product]>0&&(display.product===null||display.product===product));return <div className={`display-popup stocking-popup ${y<35?'below':''}`} style={{left:`${x}%`,top:`${y}%`}} role="dialog" aria-label={`${displayInfo[activeDisplay].name} stocking menu`}><button className="picker-close" onClick={()=>setActiveDisplay(null)}>×</button><b>{displayInfo[activeDisplay].name}</b><small>{item?`${item.name} · ${display.quantity}/${displayCapacity[activeDisplay]} spaces filled`:`Empty · ${displayCapacity[activeDisplay]} merchandise spaces`}</small>{item&&<><button onClick={()=>{setSelected(display.product);setActiveDisplay(null)}}>OFFER {item.name.toUpperCase()}</button><button disabled={g.phase==='results'} onClick={()=>returnOneDisplayItem(activeDisplay)}>RETURN ONE TO STOCK</button><button disabled={g.phase==='results'} onClick={()=>clearDisplay(activeDisplay)}>RETURN ALL TO STOCK</button></>}<b className="stocking-subhead">STOCK FROM INVENTORY</b><div className="stocking-list">{compatible.map(product=>{const art=productArt(product);return <button key={product} disabled={g.phase==='results'||display.quantity>=displayCapacity[activeDisplay]} onClick={()=>stockDisplay(activeDisplay,product)}>{art?<img src={art} alt=""/>:<span>{products[product].icon}</span>}<i><strong>{products[product].name}</strong><small>{g.inventory[product]} in stock · add one</small></i></button>})}{!compatible.length&&<em>{display.quantity>=displayCapacity[activeDisplay]?'Display is full.':'No compatible items in the stock room.'}</em>}</div><button disabled={g.phase!=='prep'} onClick={()=>rotateFurniture(activeDisplay)}>ROTATE ↻</button><button disabled={g.phase!=='prep'} onClick={()=>moveDisplay(activeDisplay)}>MOVE</button><button disabled={g.phase!=='prep'} onClick={()=>storeFurniture(activeDisplay)}>PLACE IN STORAGE</button></div>})()}
       {g.shopkeeperSlot !== null && (() => { const [x, y] = slotPositions[g.shopkeeperSlot]; return <div className={`shopkeeper-station facing-${g.furnitureFacing.shopkeeper}`} style={{ left: `${x}%`, top: `${y}%` }}><button className="shop-counter" onClick={()=>setActiveFixture('shopkeeper')} aria-label="Open Sales Counter furniture controls"><img src={`${import.meta.env.BASE_URL}assets/furniture/sales-counter.png`} alt="" draggable="false"/></button><img src={`${import.meta.env.BASE_URL}assets/shop/shopkeeper.png`} alt="Shopkeeper" draggable="false"/><small>SHOPKEEPER</small></div> })()}
       {activeFixture && (()=>{const slot=activeFixture==='shopkeeper'?g.shopkeeperSlot:g.placedBenches[activeFixture];if(slot===null)return null;const [x,y]=slotPositions[slot];return <div className="display-popup fixture-popup" style={{left:`${x}%`,top:`${y}%`}} role="dialog" aria-label={`${benchNames[activeFixture]} controls`}><button className="picker-close" onClick={()=>setActiveFixture(null)}>×</button><b>{benchNames[activeFixture]}</b><small>{activeFixture==='shopkeeper'?'The sales counter is required to open the shop and may only be moved.':'Storing the bench sends its worker home until it is placed again.'}</small><button disabled={g.phase!=='prep'} onClick={()=>rotateFurniture(activeFixture)}>ROTATE ↻</button><button disabled={g.phase!=='prep'} onClick={()=>moveFixture(activeFixture)}>MOVE</button>{activeFixture!=='shopkeeper'&&<button disabled={g.phase!=='prep'} onClick={()=>storeFurniture(activeFixture)}>PLACE IN STORAGE</button>}</div>})()}
-      <div className="roaming-customers" aria-label="Customers in the shop">{g.customers.slice(0, 3).map((c, i) => { const [x, y] = customerPosition(c.id, i); return <button key={c.id} className={`roaming-customer ${i === 0 ? 'requesting' : 'browsing'} ${g.paused ? 'standing' : 'walking'}`} style={{ left: `${x}%`, top: `${y}%` }} title={`${c.name}, ${c.role}`} aria-label={`${c.name}, ${c.role}${i === 0 ? ', waiting at the counter' : ', browsing the shop'}`}><img src={`${import.meta.env.BASE_URL}assets/customers/${c.sprite}.png`} alt="" draggable="false"/>{i === 0 && <span className="request-bubble">{c.kind === 'supplier' ? '📦' : '?'}</span>}<b>{c.name}</b><small>{i === 0 ? c.role : 'Browsing'}</small><i style={{ width: `${c.patience / c.maxPatience * 100}%` }}/></button> })}</div>
+      <div className="roaming-customers" aria-label="Customers in the shop">{g.customers.slice(0, 3).map((c, i) => { const [x, y] = customerPosition(c.id, i),requesting=active?.id===c.id,thoughtProduct=c.browsingProduct||c.requestedProduct; return <button key={c.id} className={`roaming-customer ${requesting ? 'requesting' : 'browsing'} ${g.paused ? 'standing' : 'walking'}`} style={{ left: `${x}%`, top: `${y}%` }} title={`${c.name}, ${c.role}`} aria-label={`${c.name}, ${c.role}${requesting ? ', waiting at the counter' : ', browsing the shop'}`}><img src={`${import.meta.env.BASE_URL}assets/customers/${c.sprite}.png`} alt="" draggable="false"/><span className={requesting?'request-bubble':'browse-thought'}>{requesting?(c.kind === 'supplier' ? '📦' : '?'):thoughtProduct?<ItemSprite product={thoughtProduct}/>:categoryIcons[c.request]}</span><b>{c.name}</b><small>{requesting ? c.role : c.browseTicks>0?'Inspecting stock':'Waiting'}</small><i style={{ width: `${c.patience / c.maxPatience * 100}%` }}/></button> })}</div>
       {departure && <div className="departing-customer"><img src={`${import.meta.env.BASE_URL}assets/customers/${departure.sprite}.png`} alt=""/><b><ItemSprite product={departure.product}/></b></div>}
     </div><div className="notice">❧ {placing ? `Placing ${benchNames[placing]} — choose a glowing floor space.` : note}</div></section>
     <aside className="ledger"><div className="ledger-head"><b>SHOP LEDGER</b><button onClick={reset}>{resetArmed ? 'CONFIRM RESET' : 'RESET SAVE'}</button></div>
